@@ -1,0 +1,97 @@
+# watch implemented as a zsh function
+
+# usage: watch [-n interval|-w] [--] cmd
+function __ww() {
+  interval=10
+  once=0
+  colour=""
+  watch=0
+  watch_cmd="inotifywait -r -e modify -e close_write -e move -e move_self -e create -e delete -e delete_self ."
+
+  O=`getopt -n watch -l color:colour:interval:,once,watch -- c:n:1w "$@"` || die "$usage"
+  eval set -- "$O"
+  while true; do
+      case "$1" in
+      -c|--color|--colour)	colour="$colour|${2}"; shift; shift; ;;
+      -n|--interval)	interval="$2"; shift; shift; ;;
+      -1|--once)	once=1; shift; ;;
+      -w|--watch)	watch=1; shift; ;;
+      --)			shift; break;;
+      *)			die "$usage";;
+      esac
+  done
+
+  [ $# -ge 1 ] || die "$usage"
+  cmdtorun="$@"
+
+  cols=$(tput cols)
+  lines=$(tput lines)
+  ret=0
+
+  # usage: <fgcolor> <bgcolor> <text>
+  function printColouredString() {
+    local fgcolor="$1"
+    local bgcolor="$2"
+    local text="$3"
+
+    colsLeft=$(($cols - ${#text}))
+
+    printf "$fgbold[$fgcolor]$bg[$bgcolor]" >&2
+    printf "$text" >&2
+    printf ' %.0s' {1..$colsLeft}
+    printf "$reset_color" >&2
+  
+    tput el # clear to end of line
+    printf '\n'
+  }
+
+  while true; do
+    printColouredString "white" "grey" "\`$cmdtorun\` running"
+    tput cup 0 0 # move cursor to 0,0
+
+    # https://stackoverflow.com/a/981831/1432488
+    if [ -n "$colour" ]; then
+      _output=$(eval $cmdtorun 2>&1)
+      ret=$?
+      output=$(grep -i --color=always -E "${colour}|$"<<<"$_output")
+
+    else
+      output=$(eval $cmdtorun 2>&1)
+      ret=$?
+    fi
+
+    if [ $ret -eq 0 ]; then
+      fgcol="grey"
+      bgcol="green"
+    else
+      fgcol="grey"
+      bgcol="red"
+    fi
+
+    tput clear
+    printColouredString "$fgcol" "$bgcol" "\`$cmdtorun\` running in $interval secs"
+    echo "" >&2
+    echo "$output" >&2
+    tput cup 0 0 # move cursor to 0,0
+
+    [ $? -eq 0 ] && [ $once -eq 1 ] && break;
+
+    if [ $watch -eq 1 ]; then
+      printColouredString "$fgcol" "$bgcol" "\`$cmdtorun\` watching for changes..."
+      tput cup 0 0 # move cursor to 0,0
+      eval "$watch_cmd" &>/dev/null
+
+    else
+      cur=${interval}
+      while [ $cur -gt 0 ]; do
+        printColouredString "$fgcol" "$bgcol" "\`$cmdtorun\` running in $cur secs"
+        tput cup 0 0 # move cursor to 0,0
+
+        sleep 1
+        (( cur-- ))
+      done
+    fi
+  done
+}
+
+alias ww='__ww'
