@@ -20,13 +20,12 @@ But...  it could benefit from a few extra features to make it even better. `ww` 
 
 ## Installation
 
-Clone this repository, and then source from your shell rc file. For example, in mine I have:
+Clone this repository, and then add this to `~/.zshrc`:
 
 ```
-source ~/github/ww/ww
+# replace path here with wherever you checked out this repo
+source ~/ww/ww
 ```
-
-This sets up the `ww` alias. `ww` works with `zsh`. I haven't tested in other shells, but would welcome feedback and PRs to enable `ww` for those too.
 
 ## Quick start
 
@@ -90,6 +89,9 @@ usage: ww [opts] CMD
 
 If WW_DEFAULT_ARGS is set, this can contain default arguments, processed before command line arguments on every invocation.
 ```
+
+`ww` works with `zsh`, tested on v5.7.1. I haven't tested in other shells, but would welcome feedback and PRs to enable `ww` for those too.
+
 
 ## Contributing
 
