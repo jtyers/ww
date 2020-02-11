@@ -53,6 +53,10 @@ function __ww() {
   }
 
   while true; do
+    # re-evaluate on every run in case terminal has been resized
+    cols=$(tput cols)
+    lines=$(tput lines)
+
     printColouredString "white" "grey" "\`$cmdtorun\` running"
     tput cup 0 0 # move cursor to 0,0
 
