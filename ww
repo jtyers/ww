@@ -1,14 +1,20 @@
 # watch implemented as a zsh function
 
+function __ww_die() {
+  echo "$@" >&2
+  echo 1
+}
 # usage: watch [-n interval|-w] [--] cmd
 function __ww() {
+  usage="ww [-n <interval> | -w | -c <color> | -1] [--] cmd"
+
   interval=10
   once=0
   colour=""
   watch=0
   watch_cmd="inotifywait -r -e modify -e close_write -e move -e move_self -e create -e delete -e delete_self ."
 
-  O=`getopt -n watch -l color:colour:interval:,once,watch -- c:n:1w "$@"` || die "$usage"
+  O=`getopt -n ww -l color:colour:interval:,once,watch -- c:n:1w "$@"` || return $(__ww_die "$usage")
   eval set -- "$O"
   while true; do
       case "$1" in
@@ -17,11 +23,11 @@ function __ww() {
       -1|--once)	once=1; shift; ;;
       -w|--watch)	watch=1; shift; ;;
       --)			shift; break;;
-      *)			die "$usage";;
+      *)			return $(__ww_die "$usage");;
       esac
   done
 
-  [ $# -ge 1 ] || die "$usage"
+  [ $# -ge 1 ] || return $(__ww_die "$usage")
   cmdtorun="$@"
 
   cols=$(tput cols)
