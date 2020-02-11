@@ -60,6 +60,14 @@ If you need to pass arguments to `cmd`, be sure to use `--` so that `ww` doesn't
 ww -n 5 -- df -h
 ```
 
+Use `WW_DEFAULT_ARGS` to set default arguments. For example:
+```
+export WW_DEFAULT_ARGS="-c err -c fail"
+
+# ww will now always highlight "err" and "fail" in output
+ww my-command
+```
+
 ## Usage
 
 ```
@@ -79,6 +87,8 @@ usage: ww [opts] CMD
   --watch, -w
     refresh when files in the current directory are changed
     (required inotifywatch to be installed)
+
+If WW_DEFAULT_ARGS is set, this can contain default arguments, processed before command line arguments on every invocation.
 ```
 
 ## Contributing

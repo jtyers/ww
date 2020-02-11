@@ -4,6 +4,7 @@ function __ww_die() {
   echo "$@" >&2
   echo 1
 }
+
 # usage: watch [-n interval|-w] [--] cmd
 function __ww() {
   usage="ww [-n <interval> | -w | -c <color> | -1] [--] cmd"
@@ -15,7 +16,7 @@ function __ww() {
   watch_cmd="inotifywait -r -e modify -e close_write -e move -e move_self -e create -e delete -e delete_self ."
 
   O=`getopt -n ww -l color:colour:interval:,once,watch -- c:n:1w "$@"` || return $(__ww_die "$usage")
-  eval set -- "$O"
+  eval set -- "$WW_DEFAULT_ARGS" "$O"
   while true; do
       case "$1" in
       -c|--color|--colour)	colour="$colour|${2}"; shift; shift; ;;
