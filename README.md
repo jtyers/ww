@@ -1,12 +1,10 @@
 # ww - a better `watch`
 
-`watch` has been part of the furniture for us working on Linux/UNIX for years. A classic example of a simple concept, implemented simply and elegantly.
+`watch` has been part of the furniture on Linux/UNIX for years. A classic example of a simple concept, implemented simply and elegantly.
 
-But...  it could benefit from a few extra features to make it even better. `ww` began as a block in my shell config but I've now spit it out here to share with others.
+But...  it could benefit from a few extra features to make it even better. `ww` began as a block in my shell config but I've now spit it out here to share with others.  `ww` brings you `watch` as you know, but with some extras:
 
-`ww` brings you `watch` as you know, but with some extras:
-
-* runs as an alias, so you can use your shell aliases to watch
+* supports using your shell aliases as a command to watch
 
 * countdown number of seconds left before next execution
 
@@ -20,7 +18,14 @@ But...  it could benefit from a few extra features to make it even better. `ww` 
 
 ## Installation
 
-Clone this repository, and then add this to `~/.zshrc`:
+1. Clone this repository:
+
+```
+# change ~/ww to where you want to clone
+git clone https://github.com/jtyers/ww.git ~/ww
+```
+
+2. Add this to `~/.zshrc`:
 
 ```
 # replace path here with wherever you checked out this repo
@@ -85,7 +90,17 @@ usage: ww [opts] CMD
 
   --watch, -w
     refresh when files in the current directory are changed
-    (required inotifywatch to be installed)
+    (requires inotifywatch to be installed)
+
+  --watch-wait, -W SECONDS
+    when --watch is used, ww will wait a short period after a
+    change is detected to allow related I/O operations to complete
+    (default: 0.25)
+
+  --no-capture
+    allow underlying command to print straight to terminal rather
+    than capturing output (used for slower commands, such as find,
+    tail -f, etc; in this mode, --color has no effect)
 
 If WW_DEFAULT_ARGS is set, this can contain default arguments, processed before command line arguments on every invocation.
 ```
