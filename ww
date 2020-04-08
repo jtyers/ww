@@ -7,22 +7,26 @@ function __ww_die() {
 
 # usage: watch [-n interval|-w] [--] cmd
 function __ww() {
-  usage="ww [-n <interval> | -w | -c <color> | -1] [--] cmd"
+  usage="ww [-n <interval> | -w | -c <color> | --no-capture | -1] [--] cmd"
 
   interval=10
   once=0
+  capture=1
   colour=""
   watch=0
+  watch_wait=0.25
   watch_cmd="inotifywait -r -e modify -e close_write -e move -e move_self -e create -e delete -e delete_self ."
 
-  O=`getopt -n ww -l color:colour:interval:,once,watch -- c:n:1w "$@"` || return $(__ww_die "$usage")
+  O=`getopt -n ww -l no-capture,color:colour:interval:,once,watch,watch_wait -- Nc:n:1wW "$@"` || return $(__ww_die "$usage")
   eval set -- "$WW_DEFAULT_ARGS" "$O"
   while true; do
       case "$1" in
       -c|--color|--colour)	colour="$colour|${2}"; shift; shift; ;;
       -n|--interval)	interval="$2"; shift; shift; ;;
       -1|--once)	once=1; shift; ;;
+      -N|--no-capture)	capture=0; shift; ;;
       -w|--watch)	watch=1; shift; ;;
+      -W|--watch-wait)	watch_wait="$1"; shift; shift; ;;
       --)			shift; break;;
       *)			return $(__ww_die "$usage");;
       esac
@@ -30,6 +34,10 @@ function __ww() {
 
   [ $# -ge 1 ] || return $(__ww_die "$usage")
   cmdtorun="$@"
+
+  if [ $capture -eq 0 ] && [ -n "$colour" ]; then
+    echo "warning: --color has no effect when --no-capture is used" >&2
+  fi
 
   cols=$(tput cols)
   lines=$(tput lines)
@@ -60,37 +68,53 @@ function __ww() {
     printColouredString "white" "grey" "\`$cmdtorun\` running"
     tput cup 0 0 # move cursor to 0,0
 
-    # https://stackoverflow.com/a/981831/1432488
-    if [ -n "$colour" ]; then
-      _output=$(eval $cmdtorun 2>&1)
-      ret=$?
-      output=$(grep -i --color=always -E "${colour}|$"<<<"$_output")
+    if [ $capture -eq 0 ]; then
+      # no capture = run command and allow it to print direct to the terminal
+      # ...in this mode no filtering/colouring will work
+      tput clear
+      printColouredString "$fgcol" "$bgcol" "\`$cmdtorun\` running in $interval secs"
+      echo "" >&2
+      eval $cmdtorun >&2
 
     else
-      output=$(eval $cmdtorun 2>&1)
-      ret=$?
+      # https://stackoverflow.com/a/981831/1432488
+      if [ -n "$colour" ]; then
+        _output=$(eval $cmdtorun 2>&1)
+        ret=$?
+        output=$(grep -i --color=always -E "${colour}|$"<<<"$_output")
+
+      else
+        output=$(eval $cmdtorun 2>&1)
+        ret=$?
+      fi
+
+      if [ $ret -eq 0 ]; then
+        fgcol="grey"
+        bgcol="green"
+      else
+        fgcol="grey"
+        bgcol="red"
+      fi
+
+      tput clear
+      printColouredString "$fgcol" "$bgcol" "\`$cmdtorun\` running in $interval secs"
+      echo "" >&2
+      echo "$output" >&2
     fi
 
-    if [ $ret -eq 0 ]; then
-      fgcol="grey"
-      bgcol="green"
-    else
-      fgcol="grey"
-      bgcol="red"
-    fi
-
-    tput clear
-    printColouredString "$fgcol" "$bgcol" "\`$cmdtorun\` running in $interval secs"
-    echo "" >&2
-    echo "$output" >&2
+    [ $ret -eq 0 ] && [ $once -eq 1 ] && break;
+    
     tput cup 0 0 # move cursor to 0,0
-
-    [ $? -eq 0 ] && [ $once -eq 1 ] && break;
 
     if [ $watch -eq 1 ]; then
       printColouredString "$fgcol" "$bgcol" "\`$cmdtorun\` watching for changes..."
       tput cup 0 0 # move cursor to 0,0
       eval "$watch_cmd" &>/dev/null
+
+      # after a watch returns, wait a defined amount of time to allow for writes to complete etc
+      # (and handle the case where the write we detect is in fact one of several files being 
+      # written by another process)
+      sleep $watch_wait 
 
     else
       cur=${interval}
