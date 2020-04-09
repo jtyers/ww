@@ -1,5 +1,7 @@
 # ww - a better `watch`
 
+![ww in action](demo.gif)
+
 `watch` has been part of the furniture on Linux/UNIX for years. A classic example of a simple concept, implemented simply and elegantly.
 
 But...  it could benefit from a few extra features to make it even better. `ww` began as a block in my shell config but I've now spit it out here to share with others.  `ww` brings you `watch` as you know, but with some extras:
