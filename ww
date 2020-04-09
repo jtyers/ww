@@ -7,7 +7,57 @@ function __ww_die() {
 
 # usage: watch [-n interval|-w] [--] cmd
 function __ww() {
-  usage="ww [-n <interval> | -w | -c <color> | --no-capture | -1] [--] cmd"
+  read -r -d '' usage <<EOF
+ww - a better watch
+
+USAGE
+  ww [opts] [--] CMD
+
+  --once, -1
+    quit after CMD finishes successfully (exit code 0)
+
+  --color, --colour, -c WORD
+    highlight instances of WORD in output (can be repeated)
+
+  --interval, -n N
+    refresh every N seconds (ignored if -w is specified)
+
+  --watch, -w
+    refresh when files in the current directory are changed
+    (requires inotifywatch to be installed)
+
+  --watch-wait, -W SECONDS
+    when --watch is used, ww will wait a short period after a
+    change is detected to allow related I/O operations to complete
+    (default: 0.25)
+
+  --no-capture, -n
+    allow underlying command to print straight to terminal rather
+    than capturing output (used for slower commands, such as find,
+    tail -f, etc; in this mode, --color has no effect)
+
+  --until, -u
+    wait until CMD has run successfully, then quit (this is just an
+    alias for '--no-capture --once')
+
+If WW_DEFAULT_ARGS is set, this can contain default arguments, processed before command line arguments on every invocation.
+
+You can use any shell expansions or aliases in CMD, but remember to escape special characters (see EXAMPLES below).
+
+Examples:
+  ww df -h   # run df -h every 10 seconds
+
+  # run 'go test' every 2 seconds, grepping for FAILED 
+  # (note the escaped pipe character)
+  ww -n 2 -- go test \| grep FAILED
+  
+  # run 'go test' every time files in the current directory
+  # are changed
+  ww -w -- go test
+  
+  # run 'ls ~/foo' continuously, if it fails, retry after 5 seconds, exit when it succeeds
+  ww -u -n 5 -- ls ~/foo
+EOF
 
   interval=10
   once=0
@@ -17,16 +67,18 @@ function __ww() {
   watch_wait=0.25
   watch_cmd="inotifywait -r -e modify -e close_write -e move -e move_self -e create -e delete -e delete_self ."
 
-  O=`getopt -n ww -l no-capture,color:colour:interval:,once,watch,watch_wait -- Nc:n:1wW "$@"` || return $(__ww_die "$usage")
+  O=`getopt -n ww -l help,no-capture,color:colour:interval:,once,watch,watch-wait,until -- hNc:n:1wWu "$@"` || return $(__ww_die "$usage")
   eval set -- "$WW_DEFAULT_ARGS" "$O"
   while true; do
       case "$1" in
+      -h|--help)	echo "$usage"; return 0 ;;
       -c|--color|--colour)	colour="$colour|${2}"; shift; shift; ;;
       -n|--interval)	interval="$2"; shift; shift; ;;
       -1|--once)	once=1; shift; ;;
       -N|--no-capture)	capture=0; shift; ;;
       -w|--watch)	watch=1; shift; ;;
       -W|--watch-wait)	watch_wait="$1"; shift; shift; ;;
+      -u|--until)	capture=0; once=1; shift; ;;
       --)			shift; break;;
       *)			return $(__ww_die "$usage");;
       esac
@@ -64,6 +116,9 @@ function __ww() {
     # re-evaluate on every run in case terminal has been resized
     cols=$(tput cols)
     lines=$(tput lines)
+        
+    fgcol="white"
+    bgcol="grey"
 
     printColouredString "white" "grey" "\`$cmdtorun\` running"
     tput cup 0 0 # move cursor to 0,0
@@ -74,7 +129,9 @@ function __ww() {
       tput clear
       printColouredString "$fgcol" "$bgcol" "\`$cmdtorun\` running in $interval secs"
       echo "" >&2
+
       eval $cmdtorun >&2
+      ret=$?
 
     else
       # https://stackoverflow.com/a/981831/1432488

@@ -32,30 +32,30 @@ git clone https://github.com/jtyers/ww.git ~/ww
 source ~/ww/ww
 ```
 
-## Quick start
+## How to use
 
-Run `cmd` every 3 seconds. If you omit `-n`, it defaults to `10`. A bar is drawn across the top of the screen to show the outcome of each run. `cmd` can be a shell alias, making it rather powerful if you need to run your own aliases over the top.
+Run `cmd` every 3 seconds. If you omit `-n`, it defaults to `10`. `cmd` can be a shell alias or any pipeline, making it rather powerful if you need to run your own aliases over the top.
 
 ```
 ww -n 3 cmd
 ```
 
-Run `cmd` every 3 seconds until it succeeds, then quit. `--once` can be used instead of `-1`.
+Run `kubectl get pods | grep foo-bar` every 3 seconds until it succeeds, then quit. Notice how the pipe needs escaping, so that the shell doesn't interpret it.
 
 ```
-ww -n 3 -1 cmd
+ww -n 3 --until -- kubectl get pods \| grep foo-bar
 ```
 
-Run `cmd`, and re-run if any files in the current directory are written to, renamed or deleted. This uses `inotifywait -r` under the hood currently, so only supports Linux, and may be slow in larger directory hierarchies.
+Run `npm run test`, and re-run if any files in the current directory are written to, renamed or deleted. This uses `inotifywait -r` under the hood currently, so only supports Linux, and may be slow in larger directory hierarchies.
 
 ```
-ww -w cmd
+ww -w npm run test
 ```
 
-Run `cmd`, and highlight and the words **error** and **fail** in the output. Repeat `-c` to add more words. Highlighting is case-insensitive.
+Run `tail log.txt`, and re-run any time files in the current directory are changed. Highlight instances of "error" and "fail" in the output. Repeat `-c <word>` to add more words. Highlighting is case-insensitive.
 
 ```
-ww -w -c error -c fail cmd
+ww -w -c error -c fail tail log.txt
 ```
 
 If you need to pass arguments to `cmd`, be sure to use `--` so that `ww` doesn't gobble them up. For example:
@@ -72,12 +72,21 @@ export WW_DEFAULT_ARGS="-c err -c fail"
 ww my-command
 ```
 
+For maximum ease of use, I define these aliases to run `ww` in various forms quickly:
+```
+alias www='ww -w'
+alias ww2='ww -n2'
+alias ww5='ww -n5'
+alias wwu='ww --until'
+```
+
 ## Usage
 
 ```
 ww - a better watch
 
-usage: ww [opts] CMD
+USAGE
+  ww [opts] [--] CMD
 
   --once, -1
     quit after CMD finishes successfully (exit code 0)
@@ -97,17 +106,38 @@ usage: ww [opts] CMD
     change is detected to allow related I/O operations to complete
     (default: 0.25)
 
-  --no-capture
+  --no-capture, -n
     allow underlying command to print straight to terminal rather
     than capturing output (used for slower commands, such as find,
     tail -f, etc; in this mode, --color has no effect)
 
+  --until, -u
+    wait until CMD has run successfully, then quit (this is just an
+    alias for '--no-capture --once')
+
 If WW_DEFAULT_ARGS is set, this can contain default arguments, processed before command line arguments on every invocation.
+
+You can use any shell expansions or aliases in CMD, but remember to escape special characters (see EXAMPLES below).
+
+Examples:
+  ww df -h   # run df -h every 10 seconds
+
+  # run 'go test' every 2 seconds, grepping for FAILED 
+  # (note the escaped pipe character)
+  ww -n 2 -- go test \| grep FAILED
+  
+  # run 'go test' every time files in the current directory
+  # are changed
+  ww -w -- go test
+  
+  # run 'ls ~/foo' continuously, if it fails, retry after 5 seconds, exit when it succeeds
+  ww -u -n 5 -- ls ~/foo
+
 ```
 
-`ww` works with `zsh`, tested on v5.7.1. I haven't tested in other shells, but would welcome feedback and PRs to enable `ww` for those too.
+`ww` works with `zsh`, tested on v5.7.1. Should work with any POSIX-compatible shell, though I haven't tested in other shells. Feedback and PRs welcome!
 
 
 ## Contributing
 
-Contributions are very welcome, please raise a PR and state clearly what problem you're trying to solve. Keep in mind that `ww` is designed to be light.
+Contributions are very welcome, please raise a PR and state clearly what problem you're trying to solve. Keep in mind that `ww` is designed to be light and fast.
