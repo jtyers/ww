@@ -6,17 +6,17 @@
 
 But...  it could benefit from a few extra features to make it even better. `ww` began as a block in my shell config but I've now spit it out here to share with others.  `ww` brings you `watch` as you know, but with some extras:
 
-* supports using your shell aliases as a command to watch
+* supports watching shell aliases, and even pipelines
 
 * countdown number of seconds left before next execution
 
-* coloured bar along the top to clearly indicate success/failure
-
 * watch for changes to files rather than running on an interval
+
+* coloured bar along the top to clearly indicate success/failure
 
 * highlight particular words in the output
 
-* use `-1` to run until the command succeeds
+* watch a command until it succeeds, then exit (handy for scripting, eg ensuring a host is responding to pings before SSHing to it)
 
 ## Installation
 
@@ -42,13 +42,18 @@ Run `cmd` every 3 seconds. If you omit `-n`, it defaults to `10`. `cmd` can be a
 ww -n 3 cmd
 ```
 
-Run `kubectl get pods | grep foo-bar` every 3 seconds until it succeeds, then quit. Notice how the pipe needs escaping, so that the shell doesn't interpret it.
+Run `kubectl get pods | grep foo-bar` every 3 seconds until it succeeds, then quit.
 
 ```
+# notice that the pipe character should be escaped
 ww -n 3 --until -- kubectl get pods \| grep foo-bar
+
+# or include it in quotes
+ww -n 3 --until -- "kubectl get pods | grep foo-bar"
+
 ```
 
-Run `npm run test`, and re-run if any files in the current directory are written to, renamed or deleted. This uses `inotifywait -r` under the hood currently, so only supports Linux, and may be slow in larger directory hierarchies.
+Run `npm run test`, and re-run if any files in the current directory are written to, renamed or deleted. This uses `inotify` under the hood currently, so only supports Linux, and may be slow in larger directory hierarchies.
 
 ```
 ww -w npm run test
