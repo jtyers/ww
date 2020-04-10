@@ -6,6 +6,8 @@
 
 But...  it could benefit from a few extra features to make it even better. `ww` began as a block in my shell config but I've now spit it out here to share with others.  `ww` brings you `watch` as you know, but with some extras:
 
+* use `ww` in scripts to wait for some condition to succeed before carrying on
+
 * supports using your shell aliases as a command to watch
 
 * countdown number of seconds left before next execution
@@ -117,23 +119,39 @@ USAGE
     wait until CMD has run successfully, then quit (this is just an
     alias for '--no-capture --once')
 
+  --quiet, -q
+    suppress output (both of ww and CMD; only affects standard output of CMD,
+    any errors are still printed)
+
 If WW_DEFAULT_ARGS is set, this can contain default arguments, processed before command line arguments on every invocation.
 
 You can use any shell expansions or aliases in CMD, but remember to escape special characters (see EXAMPLES below).
 
 Examples:
-  ww df -h   # run df -h every 10 seconds
+  # run ls every 10 seconds
+  ww ls
+
+  # when CMD includes arguments either use '--' or quote CMD
+
+  ww 'df -h'    # run df -h every 10 seconds
+  ww -- df -h   # equivalent to above
 
   # run 'go test' every 2 seconds, grepping for FAILED 
   # (note the escaped pipe character)
-  ww -n 2 -- go test \| grep FAILED
+  ww -n 2 go test \| grep FAILED
   
   # run 'go test' every time files in the current directory
   # are changed
-  ww -w -- go test
+  ww -w go test
   
   # run 'ls ~/foo' continuously, if it fails, retry after 5 seconds, exit when it succeeds
-  ww -u -n 5 -- ls ~/foo
+  ww -u -n 5 ls ~/foo
+  
+  # silently wait for ls ~/foo to succeed, and then exit
+  ww -n 2 -qu ls ~/foo
+  
+  # silently wait for PID 100 to disappear, then exit (works since we can execute any shell code as an argument)
+  ww -n 2 -qu '[ -z "$(ps -hp 1)" ]'
 
 ```
 

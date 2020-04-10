@@ -7,6 +7,35 @@ function __ww_die() {
 
 # usage: watch [-n interval|-w] [--] cmd
 function __ww() {
+  function _echo() {
+    [ $quiet -eq 1 ] && return
+    echo "$@"
+  }
+
+  function _tput() {
+    [ $quiet -eq 1 ] && return
+    tput "$@"
+  }
+
+  # usage: <fgcolor> <bgcolor> <text>
+  function printColouredString() {
+    [ $quiet -eq 1 ] && return
+
+    local fgcolor="$1"
+    local bgcolor="$2"
+    local text="$3"
+
+    colsLeft=$(($cols - ${#text}))
+
+    printf "$fgbold[$fgcolor]$bg[$bgcolor]" >&2
+    printf "$text" >&2
+    printf ' %.0s' {1..$colsLeft}
+    printf "$reset_color" >&2
+  
+    _tput el # clear to end of line
+    printf '\n'
+  }
+
   read -r -d '' usage <<EOF
 ww - a better watch
 
@@ -40,6 +69,10 @@ USAGE
     wait until CMD has run successfully, then quit (this is just an
     alias for '--no-capture --once')
 
+  --quiet, -q
+    suppress output (both of ww and CMD; only affects standard output of CMD,
+    any errors are still printed)
+
 If WW_DEFAULT_ARGS is set, this can contain default arguments, processed before command line arguments on every invocation.
 
 You can use any shell expansions or aliases in CMD, but remember to escape special characters (see EXAMPLES below).
@@ -60,6 +93,7 @@ Examples:
 EOF
 
   interval=10
+  quiet=0
   once=0
   capture=1
   colour=""
@@ -67,20 +101,21 @@ EOF
   watch_wait=0.25
   watch_cmd="inotifywait -r -e modify -e close_write -e move -e move_self -e create -e delete -e delete_self ."
 
-  O=`getopt -n ww -l help,no-capture,color:colour:interval:,once,watch,watch-wait,until -- hNc:n:1wWu "$@"` || return $(__ww_die "$usage")
+  O=`getopt -n ww -l help,no-capture,color:colour:interval:,once,watch,watch-wait,until,quiet -- hNc:n:1wWuq "$@"` || return $(__ww_die "$usage")
   eval set -- "$WW_DEFAULT_ARGS" "$O"
   while true; do
       case "$1" in
-      -h|--help)	echo "$usage"; return 0 ;;
+      -h|--help)            echo "$usage"; return 0 ;;
       -c|--color|--colour)	colour="$colour|${2}"; shift; shift; ;;
-      -n|--interval)	interval="$2"; shift; shift; ;;
-      -1|--once)	once=1; shift; ;;
-      -N|--no-capture)	capture=0; shift; ;;
-      -w|--watch)	watch=1; shift; ;;
-      -W|--watch-wait)	watch_wait="$1"; shift; shift; ;;
-      -u|--until)	capture=0; once=1; shift; ;;
-      --)			shift; break;;
-      *)			return $(__ww_die "$usage");;
+      -n|--interval)	      interval="$2"; shift; shift; ;;
+      -1|--once)	          once=1; shift; ;;
+      -N|--no-capture)	    capture=0; shift; ;;
+      -w|--watch)	          watch=1; shift; ;;
+      -W|--watch-wait)	    watch_wait="$1"; shift; shift; ;;
+      -u|--until)	          capture=0; once=1; shift; ;;
+      -q|--quiet)	          quiet=1; capture=0; shift; ;; # -q implies -N
+      --)			              shift; break;;
+      *)			              return $(__ww_die "$usage");;
       esac
   done
 
@@ -88,29 +123,12 @@ EOF
   cmdtorun="$@"
 
   if [ $capture -eq 0 ] && [ -n "$colour" ]; then
-    echo "warning: --color has no effect when --no-capture is used" >&2
+    _echo "warning: --color has no effect when --no-capture is used" >&2
   fi
 
   cols=$(tput cols)
   lines=$(tput lines)
   ret=0
-
-  # usage: <fgcolor> <bgcolor> <text>
-  function printColouredString() {
-    local fgcolor="$1"
-    local bgcolor="$2"
-    local text="$3"
-
-    colsLeft=$(($cols - ${#text}))
-
-    printf "$fgbold[$fgcolor]$bg[$bgcolor]" >&2
-    printf "$text" >&2
-    printf ' %.0s' {1..$colsLeft}
-    printf "$reset_color" >&2
-  
-    tput el # clear to end of line
-    printf '\n'
-  }
 
   while true; do
     # re-evaluate on every run in case terminal has been resized
@@ -121,17 +139,24 @@ EOF
     bgcol="grey"
 
     printColouredString "white" "grey" "\`$cmdtorun\` running"
-    tput cup 0 0 # move cursor to 0,0
+    _tput cup 0 0 # move cursor to 0,0
 
     if [ $capture -eq 0 ]; then
       # no capture = run command and allow it to print direct to the terminal
       # ...in this mode no filtering/colouring will work
-      tput clear
+      _tput clear
       printColouredString "$fgcol" "$bgcol" "\`$cmdtorun\` running in $interval secs"
-      echo "" >&2
+      _echo "" >&2
 
-      eval $cmdtorun >&2
-      ret=$?
+      # if -q is specified, $capture is 0, so check here whether to suppress output
+      if [ $quiet -eq 1 ]; then
+        eval $cmdtorun > /dev/null
+        ret=$?
+
+      else
+        eval $cmdtorun
+        ret=$?
+      fi
 
     else
       # https://stackoverflow.com/a/981831/1432488
@@ -153,19 +178,19 @@ EOF
         bgcol="red"
       fi
 
-      tput clear
+      _tput clear
       printColouredString "$fgcol" "$bgcol" "\`$cmdtorun\` running in $interval secs"
-      echo "" >&2
-      echo "$output" >&2
+      _echo "" >&2
+      _echo "$output" >&2
     fi
 
     [ $ret -eq 0 ] && [ $once -eq 1 ] && break;
     
-    tput cup 0 0 # move cursor to 0,0
+    _tput cup 0 0 # move cursor to 0,0
 
     if [ $watch -eq 1 ]; then
       printColouredString "$fgcol" "$bgcol" "\`$cmdtorun\` watching for changes..."
-      tput cup 0 0 # move cursor to 0,0
+      _tput cup 0 0 # move cursor to 0,0
       eval "$watch_cmd" &>/dev/null
 
       # after a watch returns, wait a defined amount of time to allow for writes to complete etc
@@ -177,7 +202,7 @@ EOF
       cur=${interval}
       while [ $cur -gt 0 ]; do
         printColouredString "$fgcol" "$bgcol" "\`$cmdtorun\` running in $cur secs"
-        tput cup 0 0 # move cursor to 0,0
+        _tput cup 0 0 # move cursor to 0,0
 
         sleep 1
         (( cur-- ))
