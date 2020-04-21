@@ -1,6 +1,4 @@
 # watch implemented as a zsh function
-VERSION=0.0.1
-
 # 
 # MIT License
 # 
@@ -32,6 +30,8 @@ function __ww_die() {
 
 # usage: watch [-n interval|-w] [--] cmd
 function __ww() {
+  VERSION=0.0.1
+
   function _echo() {
     [ $quiet -eq 1 ] && return
     echo "$@"
