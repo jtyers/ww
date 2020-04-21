@@ -1,0 +1,32 @@
+#!/bin/sh
+set -eux
+
+die() {
+  echo "$@" >&2
+  exit 1
+}
+
+# check 'hub' (github util) is available
+which hub || die "Github CLI \`hub\` not installed"
+
+wwDir=$(dirname "$0")/..
+dn=$(dirname "$0")
+
+# extract VERSION from ww
+eval "$(grep VERSION= $wwDir/ww)"
+
+[ -n "$WW_VERSION" ] || die "WW_VERSION not found"
+
+ver="$WW_VERSION"
+
+# now create a release tarball
+dist="$dn/dist/ww-$ver"
+mkdir -p "$dist"
+
+cp "$wwDir/ww" "$dist/"
+cp "$wwDir/README.md" "$dist/"
+cp "$wwDir/LICENSE" "$dist/"
+
+tar czf "$dn/ww-$ver.tar.gz" -C $(dirname "$dist") $(basename "$dist")
+
+hub release create -a "$dn/ww-$ver.tar.gz" "$ver"

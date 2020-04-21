@@ -30,7 +30,7 @@ function __ww_die() {
 
 # usage: watch [-n interval|-w] [--] cmd
 function __ww() {
-  VERSION=0.0.1
+  WW_VERSION=0.0.1
 
   function _echo() {
     [ $quiet -eq 1 ] && return
@@ -64,7 +64,7 @@ function __ww() {
   read -r -d '' usage <<EOF
 ww - a better watch
 
-Version $VERSION
+Version $WW_VERSION
 https://github.com/jtyers/ww
 Written by Jonny Tyers
 
