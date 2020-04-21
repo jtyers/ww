@@ -166,3 +166,7 @@ Examples:
 ## Contributing
 
 Contributions are very welcome, please raise a PR and state clearly what problem you're trying to solve. Keep in mind that `ww` is designed to be light and fast.
+
+## Licence
+
+This is open-sourced under the MIT licence. See the LICENCE file for details.
