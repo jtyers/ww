@@ -128,7 +128,8 @@ EOF
   colour=""
   watch=0
   watch_wait=0.25
-  watch_cmd="inotifywait -r -e modify -e close_write -e move -e move_self -e create -e delete -e delete_self ."
+  inotifycmd=$(which inotifywait)
+  watch_cmd="$inotifycmd -r -e modify -e close_write -e move -e move_self -e create -e delete -e delete_self -e unmount --exclude '\.git/.*' ."
 
   O=`getopt -n ww -l help,no-capture,color:colour:interval:,once,watch,watch-wait,until,quiet -- hNc:n:1wWuq "$@"` || return $(__ww_die "$usage")
   eval set -- "$WW_DEFAULT_ARGS" "$O"
@@ -153,6 +154,10 @@ EOF
 
   if [ $capture -eq 0 ] && [ -n "$colour" ]; then
     _echo "warning: --color has no effect when --no-capture is used" >&2
+  fi
+  
+  if [ $watch -eq 1 ]; then
+    [ -z "$inotifycmd" ] && return $(__ww_die "inotifywatch not found: make sure it is installed and on your PATH")
   fi
 
   cols=$(tput cols)
