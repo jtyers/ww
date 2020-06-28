@@ -15,6 +15,15 @@ import (
 
 var ErrInterrupted = fmt.Errorf("interrupted")
 
+var StatusSuccess = Status{"[#00ff00]", "success"}
+var StatusFailed = Status{"[#ff0000]", "failed"}
+var StatusRunning = Status{"[#cacaca]", "running"}
+
+type Status struct {
+	colorCode string
+	name      string
+}
+
 type WWConfig struct {
 	// Command is the command to execute.
 	Command string
@@ -39,6 +48,7 @@ type WWState struct {
 
 	// The header cell in the grid
 	header *tview.TextView
+	status *tview.TextView
 
 	// A channel used to interrupt the configured WWTrigger
 	interruptChan chan error
@@ -67,12 +77,18 @@ func (w *WW) Init() {
 
 		grid: tview.NewGrid().
 			SetRows(1, 0).
-			SetColumns(0),
+			SetColumns(0, 10).
+			SetBorders(true),
 
 		header: tview.NewTextView().
 			SetDynamicColors(true).
-			SetTextAlign(tview.AlignCenter).
+			SetTextAlign(tview.AlignLeft).
 			SetText("Hello!"),
+
+		status: tview.NewTextView().
+			SetDynamicColors(true).
+			SetTextAlign(tview.AlignRight).
+			SetText("status"),
 
 		textView: tview.NewTextView().
 			SetDynamicColors(true).
@@ -90,69 +106,62 @@ func (w *WW) Init() {
 	}
 
 	w.state.grid.AddItem(w.state.header, 0, 0, 1, 1, 0, 0, true)
-	w.state.grid.AddItem(w.state.textView, 1, 0, 1, 1, 0, 0, false)
+	w.state.grid.AddItem(w.state.status, 0, 0, 2, 2, 0, 0, false)
+	w.state.grid.AddItem(w.state.textView, 1, 0, 1, 2, 0, 0, false)
 }
 
 type WWCommandEvent struct {
 	// Has the start time of the command
 }
 
+func (w *WW) UpdateStatus(status Status, header string) {
+	w.state.app.QueueUpdateDraw(func() {
+		w.state.header.SetText(status.colorCode + tview.Escape(header))
+		w.state.status.SetText(status.colorCode + tview.Escape(status.name))
+	})
+}
+
 func (w *WW) Run() error {
 	// Kick off a goroutine that consumes events from the command and updates the TextView/Header
 	// accordingly.
 
-	stdoutChan := make(chan string, 100) // buffered, so we can start writing before readers start reading
-	stderrChan := make(chan string, 100)
-	evtChan := make(chan *os.ProcessState, 100)
+	stdoutChan := make(chan string, 5) // buffered, so we can start writing before readers start reading
+	stderrChan := make(chan string, 5)
+	evtChan := make(chan *os.ProcessState, 5)
+
+	cmdNameAndArgs := tview.Escape(fmt.Sprintf("%s %s", w.config.Command, strings.Join(w.config.Args, " ")))
+
+	beginExecuteCommand := func() {
+		if err := w.executeOnce(stdoutChan, stderrChan, evtChan); err != nil {
+			w.UpdateStatus(StatusFailed, err.Error())
+		}
+	}
+
+	go beginExecuteCommand()
 
 	go func() {
-		w.state.app.QueueUpdateDraw(func() {
-			w.state.header.SetText("[#00ff00]" + tview.Escape(fmt.Sprintf("%s %s", w.config.Command, strings.Join(w.config.Args, " "))))
-		})
-
-		if err := w.executeOnce(stdoutChan, stderrChan, evtChan); err != nil {
-			w.state.app.QueueUpdateDraw(func() {
-				w.state.header.SetText("[#ff0000]" + tview.Escape(fmt.Sprintf("%v", err)))
-			})
-		}
-
 		for {
 			select {
 			case stdout := <-stdoutChan:
 				fmt.Fprintf(w.state.textView, stdout)
 			case stderr := <-stderrChan:
 				fmt.Fprintf(w.state.textView, stderr)
-
-			case newState := <-evtChan:
-				if newState != nil && newState.Exited() {
-					col := "[#00ff00]"
-					if !newState.Success() {
-						col = "[#ff0000]"
-					}
-
-					w.state.app.QueueUpdateDraw(func() {
-						w.state.header.SetText(col + tview.Escape(fmt.Sprintf("%s %s", w.config.Command, strings.Join(w.config.Args, " "))))
-					})
-
-				} else {
-					col := "[#cacaca]"
-
-					w.state.app.QueueUpdateDraw(func() {
-						w.state.header.SetText(col + tview.Escape(fmt.Sprintf("%s %s", w.config.Command, strings.Join(w.config.Args, " "))))
-					})
-				}
 			}
 		}
 	}()
 
-	/*
-		w.state.app.QueueUpdate(func() {
-			for {
-				if err := w.executeOnce(); err != nil {
-					die(w, "executeOnce: %v", err)
-					break
+	go func() {
+		for {
+			newState := <-evtChan
+			if newState != nil && newState.Exited() {
+
+				if newState.Success() {
+					w.UpdateStatus(StatusSuccess, cmdNameAndArgs)
+				} else {
+					w.UpdateStatus(StatusFailed, cmdNameAndArgs)
 				}
 
+				// now run triggers, if configured
 				if w.config.Trigger != nil {
 					// Wait for trigger to fire
 					t := <-w.config.Trigger.WaitForTrigger(w.state.interruptChan)
@@ -161,13 +170,22 @@ func (w *WW) Run() error {
 						break // if trigger was interrupted (i.e. did not return true), quit the loop
 					}
 
+					w.state.app.QueueUpdateDraw(func() {
+						w.state.textView.Clear()
+					})
+
+					beginExecuteCommand()
+
 				} else {
 					fmt.Fprint(w.state.textView, "\n[red]ww [yellow]Press Ctrl+C to exit\n")
 					break
 				}
+
+			} else {
+				w.UpdateStatus(StatusRunning, cmdNameAndArgs)
 			}
-		})
-	*/
+		}
+	}()
 
 	if err := w.state.app.SetRoot(w.state.grid, true).EnableMouse(true).Run(); err != nil {
 		return err
@@ -200,24 +218,42 @@ func (w *WW) executeOnce(stdoutChan chan string, stderrChan chan string, evtChan
 
 	evtChan <- cmd.ProcessState
 
-	scannerReader := func(pipe io.Reader, c chan string) {
-		scanner := bufio.NewScanner(stdout)
+	stdoutClose := make(chan bool, 1)
+	stderrClose := make(chan bool, 1)
+
+	scannerReader := func(pipe io.Reader, c chan string, closeChan chan bool) {
+		scanner := bufio.NewScanner(pipe)
 		for scanner.Scan() {
 			switch scanner.Err() {
 			case nil:
-				stdoutChan <- fmt.Sprintf(tview.Escape(scanner.Text()), "\n")
-			case io.EOF: // do nowt (exit goroutine)
+				c <- fmt.Sprintln(tview.Escape(scanner.Text()))
+			case io.EOF:
+				// do nowt (exit goroutine)
+				closeChan <- true
 			default:
 				die(w, "read: %v", err)
 			}
 		}
 	}
 
-	go scannerReader(stdout, stdoutChan)
-	go scannerReader(stderr, stderrChan)
+	go scannerReader(stdout, stdoutChan, stdoutClose)
+	go scannerReader(stderr, stderrChan, stderrClose)
 
 	if err := cmd.Wait(); err != nil {
-		return fmt.Errorf("failed waiting for cmd: %v", err)
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			// process failed, so not an error, simply send state down the event channel
+
+			// FIXME sleep momentarily to allow reads/prints of stdout/stderr to complete
+			time.Sleep(time.Millisecond * 100)
+
+			evtChan <- exitErr.ProcessState
+
+			return nil
+
+		} else {
+			die(w, "failed waiting for cmd: %v", err)
+			return nil
+		}
 	}
 
 	evtChan <- cmd.ProcessState
@@ -235,13 +271,14 @@ func main() {
 	config := WWConfig{}
 
 	var useInterval int
+	flag.IntVar(&useInterval, "n", 0, "specify number of seconds to run command")
 	flag.IntVar(&useInterval, "interval", 0, "specify number of seconds to run command")
 
 	flag.Parse()
 
 	args := flag.Args()
 	config.Command = args[0]
-	config.Args = args[1:len(args)]
+	config.Args = args[1:]
 
 	if useInterval > 0 {
 		Interval, err := time.ParseDuration(fmt.Sprintf("%ds", useInterval))
