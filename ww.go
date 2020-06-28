@@ -16,9 +16,9 @@ import (
 
 var ErrInterrupted = fmt.Errorf("interrupted")
 
-var StatusSuccess = Status{"[#00ff00]", "success"}
-var StatusFailed = Status{"[#ff0000]", "failed"}
-var StatusRunning = Status{"[#cacaca]", "running"}
+var StatusSuccess = Status{"[#002200:#008800]", "success"}
+var StatusFailed = Status{"[#220000:#880000]", "failed"}
+var StatusRunning = Status{"[#aaaaaa]", "running"}
 
 type Status struct {
 	colorCode string
@@ -54,12 +54,12 @@ type WWState struct {
 	// A channel used to interrupt the configured WWTrigger
 	interruptChan chan error
 
-	// If true, stop the Application on next change. Used to escape from within the executeLoop, which
-	// starts execution before Application has started running.
-	stopOnNextChange bool
-
 	// Stores the Command used to execute - this is here to track the current state of execution
 	Command *exec.Cmd
+
+	Status Status
+
+	StatusText string
 }
 
 // WW is the main struct controlling what we do and display.
@@ -97,29 +97,26 @@ func (w *WW) Init() {
 			SetRegions(true).
 			SetWordWrap(true).
 			SetChangedFunc(func() {
-				if w.state.stopOnNextChange {
-					w.state.app.Stop()
-				} else {
-					w.state.app.Draw()
-				}
+				w.state.app.Draw()
 			}),
 
 		interruptChan: make(chan error),
 	}
 
-	w.state.grid.AddItem(w.state.header, 0, 0, 1, 1, 5, 0, true)
+	w.state.grid.AddItem(w.state.header, 0, 0, 1, 1, 5, 0, false)
 	w.state.grid.AddItem(w.state.status, 0, 1, 1, 1, 5, 20, false)
-	w.state.grid.AddItem(w.state.textView, 1, 0, 1, 2, 0, 0, false)
-}
-
-type WWCommandEvent struct {
-	// Has the start time of the command
+	w.state.grid.AddItem(w.state.textView, 1, 0, 1, 2, 0, 0, true)
 }
 
 func (w *WW) UpdateStatus(status Status, header string) {
+	w.state.Status = status
+	w.state.StatusText = header
+
+	cmdNameAndArgs := tview.Escape(fmt.Sprintf("%s %s", w.config.Command, strings.Join(w.config.Args, " ")))
+
 	w.state.app.QueueUpdateDraw(func() {
-		w.state.header.SetText(status.colorCode + tview.Escape(header))
-		w.state.status.SetText(status.colorCode + tview.Escape(status.name))
+		w.state.header.SetText(w.state.Status.colorCode + cmdNameAndArgs + " " + w.state.StatusText)
+		w.state.status.SetText(w.state.Status.colorCode + tview.Escape(w.state.Status.name))
 	})
 }
 
@@ -130,8 +127,6 @@ func (w *WW) Run() error {
 	stdoutChan := make(chan string, 5) // buffered, so we can start writing before readers start reading
 	stderrChan := make(chan string, 5)
 	evtChan := make(chan *os.ProcessState, 5)
-
-	cmdNameAndArgs := tview.Escape(fmt.Sprintf("%s %s", w.config.Command, strings.Join(w.config.Args, " ")))
 
 	beginExecuteCommand := func() {
 		if err := w.executeOnce(stdoutChan, stderrChan, evtChan); err != nil {
@@ -153,30 +148,59 @@ func (w *WW) Run() error {
 	}()
 
 	go func() {
+		// This loops around, pulling status updates from evtChan, and updating the UI accordingly.
+		//
+		// Note that output from the command being executed is *NOT* processed by this goroutine;
+		// executeOnce() has its own goroutines that read from those pipes and print directly to the
+		// textView.
+
 		for {
 			newState := <-evtChan
 			if newState != nil && newState.Exited() {
 
 				if newState.Success() {
-					w.UpdateStatus(StatusSuccess, cmdNameAndArgs)
+					w.UpdateStatus(StatusSuccess, fmt.Sprintf("(last run %s)", time.Now().Format("15:04:05")))
 				} else {
-					w.UpdateStatus(StatusFailed, cmdNameAndArgs)
+					w.UpdateStatus(StatusFailed, fmt.Sprintf("(exited with %d)", newState.ExitCode()))
 				}
 
 				// now run triggers, if configured
 				if w.config.Trigger != nil {
 					// Wait for trigger to fire
-					t := <-w.config.Trigger.WaitForTrigger(w.state.interruptChan)
+					triggerChan, statusChan := w.config.Trigger.WaitForTrigger(w.state.interruptChan)
 
-					if !t {
-						break // if trigger was interrupted (i.e. did not return true), quit the loop
+					outerbreak := false
+
+					// This loop is here to WaitForTrigger, but we also need to loop and select to catch
+					// updates coming in on statusChan and call UpdateStatus for them.
+					for {
+						select {
+						case statusUpdate := <-statusChan:
+							w.UpdateStatus(w.state.Status, statusUpdate)
+
+						case trigger := <-triggerChan:
+							if trigger {
+								w.state.app.QueueUpdateDraw(func() {
+									w.state.textView.Clear()
+								})
+
+								beginExecuteCommand()
+
+							} else {
+								outerbreak = true // if trigger was interrupted (i.e. did not return true), quit the loop
+							}
+						}
+
+						if outerbreak {
+							outerbreak = false
+							break
+						}
 					}
 
-					w.state.app.QueueUpdateDraw(func() {
-						w.state.textView.Clear()
-					})
-
-					beginExecuteCommand()
+					if outerbreak {
+						outerbreak = false
+						break
+					}
 
 				} else {
 					fmt.Fprint(w.state.textView, "\n[red]ww [yellow]Press Ctrl+C to exit\n")
@@ -184,7 +208,7 @@ func (w *WW) Run() error {
 				}
 
 			} else {
-				w.UpdateStatus(StatusRunning, cmdNameAndArgs)
+				w.UpdateStatus(StatusRunning, "")
 			}
 		}
 	}()
@@ -227,13 +251,15 @@ func (w *WW) executeOnce(stdoutChan chan string, stderrChan chan string, evtChan
 		scanner := bufio.NewScanner(pipe)
 		for scanner.Scan() {
 			switch scanner.Err() {
+			default:
+				if err != nil {
+					die(w, "read: %v", err)
+				}
 			case nil:
 				c <- fmt.Sprintln(tview.Escape(scanner.Text()))
 			case io.EOF:
 				// do nowt (exit goroutine)
 				closeChan <- true
-			default:
-				die(w, "read: %v", err)
 			}
 		}
 	}
