@@ -15,13 +15,14 @@ import (
 
 var ErrInterrupted = fmt.Errorf("interrupted")
 
-var StatusSuccess = Status{"[#002200:#008800]", "success"}
-var StatusFailed = Status{"[#ffdddd:#880000]", "failed"}
-var StatusRunning = Status{"[#aaaaaa]", "running"}
+var StatusSuccess = Status{"[#002200:#008800]", tcell.ColorDarkGreen, "success"}
+var StatusFailed = Status{"[#ffdddd:#880000]", tcell.ColorDarkRed, "failed"}
+var StatusRunning = Status{"[#aaaaaa]", tcell.ColorGray, "running"}
 
 type Status struct {
-	colorCode string
-	name      string
+	colorCode       string
+	backgroundColor tcell.Color
+	name            string
 }
 
 type WWConfig struct {
@@ -114,6 +115,9 @@ func (w *WW) UpdateStatus(status Status, header string) {
 	cmdNameAndArgs := tview.Escape(fmt.Sprintf("%s %s", w.config.Command, strings.Join(w.config.Args, " ")))
 
 	w.state.app.QueueUpdateDraw(func() {
+		w.state.header.Box.SetBackgroundColor(w.state.Status.backgroundColor)
+		w.state.status.Box.SetBackgroundColor(w.state.Status.backgroundColor)
+
 		w.state.header.SetText(w.state.Status.colorCode + cmdNameAndArgs + " " + w.state.StatusText)
 		w.state.status.SetText(w.state.Status.colorCode + tview.Escape(w.state.Status.name))
 	})
@@ -139,9 +143,9 @@ func (w *WW) Run() error {
 		for {
 			select {
 			case stdout := <-stdoutChan:
-				fmt.Fprintf(w.state.textView, stdout)
+				fmt.Fprint(w.state.textView, stdout)
 			case stderr := <-stderrChan:
-				fmt.Fprintf(w.state.textView, stderr)
+				fmt.Fprint(w.state.textView, stderr)
 			}
 		}
 	}()
