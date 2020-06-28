@@ -78,7 +78,7 @@ func (w *WW) Init() {
 		grid: tview.NewGrid().
 			SetRows(1, 0).
 			SetColumns(0, 10).
-			SetBorders(true),
+			SetBorders(false),
 
 		header: tview.NewTextView().
 			SetDynamicColors(true).
@@ -105,8 +105,8 @@ func (w *WW) Init() {
 		interruptChan: make(chan error),
 	}
 
-	w.state.grid.AddItem(w.state.header, 0, 0, 1, 1, 0, 0, true)
-	w.state.grid.AddItem(w.state.status, 0, 0, 2, 2, 0, 0, false)
+	w.state.grid.AddItem(w.state.header, 0, 0, 1, 1, 5, 0, true)
+	w.state.grid.AddItem(w.state.status, 0, 1, 1, 1, 5, 20, false)
 	w.state.grid.AddItem(w.state.textView, 1, 0, 1, 2, 0, 0, false)
 }
 
