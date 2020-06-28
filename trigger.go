@@ -33,7 +33,7 @@ func (i *IntervalWWTrigger) WaitForTrigger(interruptChan <-chan error) (<-chan b
 	s := make(chan string)
 
 	go func() {
-		for j := i.Interval.Seconds(); j > 0; j-- {
+		for j := i.Interval.Seconds() - 1; j >= 0; j-- {
 			select {
 			case <-time.After(time.Second):
 				s <- fmt.Sprintf("(running in %0.fs)", j)

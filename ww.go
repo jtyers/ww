@@ -2,7 +2,6 @@ package main
 
 import (
 	"bufio"
-	"flag"
 	"fmt"
 	"io"
 	"os"
@@ -17,7 +16,7 @@ import (
 var ErrInterrupted = fmt.Errorf("interrupted")
 
 var StatusSuccess = Status{"[#002200:#008800]", "success"}
-var StatusFailed = Status{"[#220000:#880000]", "failed"}
+var StatusFailed = Status{"[#ffdddd:#880000]", "failed"}
 var StatusRunning = Status{"[#aaaaaa]", "running"}
 
 type Status struct {
@@ -296,48 +295,7 @@ func die(ww *WW, msg string, args ...interface{}) {
 }
 
 func main() {
-	config := WWConfig{}
-
-	var useInterval int
-	flag.IntVar(&useInterval, "n", 0, "specify number of seconds to run command")
-	flag.IntVar(&useInterval, "interval", 0, "specify number of seconds to run command")
-
-	var wrapInShell bool
-	flag.BoolVar(&wrapInShell, "s", false, "run command in subshell (e.g. to make use of shell aliases)")
-	flag.BoolVar(&wrapInShell, "shell", false, "run command in a subshell (e.g. to make use of shell aliases)")
-
-	flag.Parse()
-
-	args := flag.Args()
-
-	if wrapInShell {
-		currentShell, ok := os.LookupEnv("SHELL")
-		if !ok {
-			currentShell = "/bin/sh"
-		}
-
-		newArgs := []string{currentShell, "-c"}
-
-		for _, arg := range args {
-			newArgs = append(newArgs, arg)
-		}
-
-		args = newArgs
-	}
-
-	config.Command = args[0]
-	config.Args = args[1:]
-
-	if useInterval > 0 {
-		Interval, err := time.ParseDuration(fmt.Sprintf("%ds", useInterval))
-		if err != nil {
-			die(nil, "invalid --interval: %v", err)
-		}
-
-		config.Trigger = &IntervalWWTrigger{Interval}
-	}
-
-	ww := &WW{config: config}
+	ww := &WW{config: parseArgs()}
 	ww.Init()
 
 	if err := ww.Run(); err != nil {
