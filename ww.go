@@ -276,9 +276,29 @@ func main() {
 	flag.IntVar(&useInterval, "n", 0, "specify number of seconds to run command")
 	flag.IntVar(&useInterval, "interval", 0, "specify number of seconds to run command")
 
+	var wrapInShell bool
+	flag.BoolVar(&wrapInShell, "s", false, "run command in subshell (e.g. to make use of shell aliases)")
+	flag.BoolVar(&wrapInShell, "shell", false, "run command in a subshell (e.g. to make use of shell aliases)")
+
 	flag.Parse()
 
 	args := flag.Args()
+
+	if wrapInShell {
+		currentShell, ok := os.LookupEnv("SHELL")
+		if !ok {
+			currentShell = "/bin/sh"
+		}
+
+		newArgs := []string{currentShell, "-c"}
+
+		for _, arg := range args {
+			newArgs = append(newArgs, arg)
+		}
+
+		args = newArgs
+	}
+
 	config.Command = args[0]
 	config.Args = args[1:]
 
