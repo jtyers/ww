@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"strings"
@@ -98,11 +99,51 @@ type WWCommandEvent struct {
 
 func (w *WW) Run() error {
 	// Kick off a goroutine that consumes events from the command and updates the TextView/Header
-	// accordingly
+	// accordingly.
 
-	if err := w.executeOnce(); err != nil {
-		return err
-	}
+	stdoutChan := make(chan string, 100) // buffered, so we can start writing before readers start reading
+	stderrChan := make(chan string, 100)
+	evtChan := make(chan *os.ProcessState, 100)
+
+	go func() {
+		w.state.app.QueueUpdateDraw(func() {
+			w.state.header.SetText("[#00ff00]" + tview.Escape(fmt.Sprintf("%s %s", w.config.Command, strings.Join(w.config.Args, " "))))
+		})
+
+		if err := w.executeOnce(stdoutChan, stderrChan, evtChan); err != nil {
+			w.state.app.QueueUpdateDraw(func() {
+				w.state.header.SetText("[#ff0000]" + tview.Escape(fmt.Sprintf("%v", err)))
+			})
+		}
+
+		for {
+			select {
+			case stdout := <-stdoutChan:
+				fmt.Fprintf(w.state.textView, stdout)
+			case stderr := <-stderrChan:
+				fmt.Fprintf(w.state.textView, stderr)
+
+			case newState := <-evtChan:
+				if newState != nil && newState.Exited() {
+					col := "[#00ff00]"
+					if !newState.Success() {
+						col = "[#ff0000]"
+					}
+
+					w.state.app.QueueUpdateDraw(func() {
+						w.state.header.SetText(col + tview.Escape(fmt.Sprintf("%s %s", w.config.Command, strings.Join(w.config.Args, " "))))
+					})
+
+				} else {
+					col := "[#cacaca]"
+
+					w.state.app.QueueUpdateDraw(func() {
+						w.state.header.SetText(col + tview.Escape(fmt.Sprintf("%s %s", w.config.Command, strings.Join(w.config.Args, " "))))
+					})
+				}
+			}
+		}
+	}()
 
 	/*
 		w.state.app.QueueUpdate(func() {
@@ -139,8 +180,7 @@ func (w *WW) Stop() {
 	w.state.app.Stop()
 }
 
-func (w *WW) executeOnce() error {
-	w.state.header.SetText("[#00ff00]" + tview.Escape(fmt.Sprintf("%s %s", w.config.Command, strings.Join(w.config.Args, " "))))
+func (w *WW) executeOnce(stdoutChan chan string, stderrChan chan string, evtChan chan *os.ProcessState) error {
 
 	cmd := exec.Command(w.config.Command, w.config.Args...)
 	stdout, err := cmd.StdoutPipe()
@@ -148,23 +188,39 @@ func (w *WW) executeOnce() error {
 		return fmt.Errorf("failed opening stdout: %v", err)
 	}
 
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		return fmt.Errorf("failed opening stderr: %v", err)
+	}
+
 	err = cmd.Start()
 	if err != nil {
 		return fmt.Errorf("start: %v", err)
 	}
 
-	scanner := bufio.NewScanner(stdout)
-	for scanner.Scan() { // since we scan by line, we must add the lines back into printed output
-		fmt.Fprint(w.state.textView, tview.Escape(scanner.Text()), "\n")
+	evtChan <- cmd.ProcessState
+
+	scannerReader := func(pipe io.Reader, c chan string) {
+		scanner := bufio.NewScanner(stdout)
+		for scanner.Scan() {
+			switch scanner.Err() {
+			case nil:
+				stdoutChan <- fmt.Sprintf(tview.Escape(scanner.Text()), "\n")
+			case io.EOF: // do nowt (exit goroutine)
+			default:
+				die(w, "read: %v", err)
+			}
+		}
 	}
 
-	if err := scanner.Err(); err != nil {
-		return fmt.Errorf("failed reading stdout: %v", err)
-	}
+	go scannerReader(stdout, stdoutChan)
+	go scannerReader(stderr, stderrChan)
 
 	if err := cmd.Wait(); err != nil {
 		return fmt.Errorf("failed waiting for cmd: %v", err)
 	}
+
+	evtChan <- cmd.ProcessState
 
 	return nil
 }
