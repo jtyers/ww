@@ -17,20 +17,20 @@ func TestWaitForTrigger(t *testing.T) {
 	}{
 		{
 			"should return true when no interrupt",
-			100 * time.Millisecond,
+			1 * time.Second,
 			0,
 			true,
 		},
 		{
 			"should return false when interrupted before trigger fires",
-			100 * time.Millisecond,
-			50 * time.Millisecond,
+			2 * time.Second,
+			1 * time.Second,
 			false,
 		},
 		{
 			"should return true when interrupted after trigger fires",
-			50 * time.Millisecond,
-			100 * time.Millisecond,
+			1 * time.Second,
+			2 * time.Second,
 			true,
 		},
 	}
@@ -50,7 +50,9 @@ func TestWaitForTrigger(t *testing.T) {
 			}
 
 			// when
-			result := <-trigger.WaitForTrigger(interruptChan)
+			triggerChan, _ := trigger.WaitForTrigger(interruptChan)
+
+			result := <-triggerChan
 
 			// then
 
