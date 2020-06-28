@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gdamore/tcell"
 	"github.com/rivo/tview"
 )
 
@@ -92,6 +93,7 @@ func (w *WW) Init() {
 
 		textView: tview.NewTextView().
 			SetDynamicColors(true).
+			SetTextColor(tcell.ColorDefault).
 			SetRegions(true).
 			SetWordWrap(true).
 			SetChangedFunc(func() {
