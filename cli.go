@@ -15,7 +15,7 @@ type argT struct {
 
 	Shell bool `cli:"shell,s" usage:"run command inside a shell"`
 
-	Highlights []string `cli:"highlight,H" usage:"highlight specified text in output"`
+	Highlights []string `cli:"color,colour,c" usage:"highlight specified text in output"`
 }
 
 func parseArgs() WWConfig {
