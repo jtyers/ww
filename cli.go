@@ -21,7 +21,7 @@ type argT struct {
 func parseArgs() WWConfig {
 	config := WWConfig{}
 
-	cli.Run(new(argT), func(ctx *cli.Context) error {
+	res := cli.Run(new(argT), func(ctx *cli.Context) error {
 		a, _ := ctx.Argv().(*argT)
 
 		//ctx.JSONln(ctx.Argv())
@@ -55,8 +55,21 @@ func parseArgs() WWConfig {
 			config.Args = newArgs
 		}
 
+		if len(a.Highlights) > 0 {
+			Highlights := map[string]string{}
+			for _, highlight := range a.Highlights {
+				Highlights[highlight] = "[red]"
+			}
+
+			config.Highlighter = NewHighlighter(Highlights)
+		}
+
 		return nil
 	})
+
+	if res != 0 {
+		os.Exit(res)
+	}
 
 	fmt.Printf("config: %#v\n", config)
 	return config

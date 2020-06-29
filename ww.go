@@ -35,6 +35,8 @@ type WWConfig struct {
 	// Trigger is the WWTrigger used to trigger re-executions. Might be nil if the user only wants
 	// the command to run once.
 	Trigger WWTrigger
+
+	Highlighter *Highlighter
 }
 
 type WWState struct {
@@ -143,9 +145,9 @@ func (w *WW) Run() error {
 		for {
 			select {
 			case stdout := <-stdoutChan:
-				fmt.Fprint(w.state.textView, stdout)
+				fmt.Fprint(w.state.textView, w.config.Highlighter.Highlight(stdout))
 			case stderr := <-stderrChan:
-				fmt.Fprint(w.state.textView, stderr)
+				fmt.Fprint(w.state.textView, w.config.Highlighter.Highlight(stderr))
 			}
 		}
 	}()
