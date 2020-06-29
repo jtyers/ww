@@ -6,7 +6,7 @@ import (
 )
 
 var DefaultArgsEnvKey = "WW_DEFAULT_ARGS"
-var WordSplit = regexp.MustCompile("\"(.*)\"|([^\\s]+)")
+var WordSplit = regexp.MustCompile("\"([^\"]*)\"|([^\\s]+)")
 
 // GetArgsFromEnvironment reads WW_DEFAULT_ARGS and produces a string slice containing those args.
 func GetArgsFromEnvironment() []string {
@@ -16,7 +16,8 @@ func GetArgsFromEnvironment() []string {
 		if match[1] != "" {
 			result = append(result, match[1])
 
-		} else if match[2] != "" {
+		} else {
+			// NOTE we also hit this if the first group matched, but the quote were empty (""); this is valid
 			result = append(result, match[2])
 		}
 	}

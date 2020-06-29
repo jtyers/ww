@@ -22,12 +22,14 @@ type Highlighter struct {
 func NewHighlighter(highlights map[string]string) *Highlighter {
 	highlightItems := []highlightItem{}
 
-	for k, v := range highlights {
-		highlightItems = append(highlightItems, highlightItem{
-			// Prepend '(?i)' to our regex, which sets the case-insensitive flag.
-			Regexp:   regexp.MustCompile("(?i)" + regexp.QuoteMeta(k)),
-			ColorTag: v,
-		})
+	if highlights != nil {
+		for k, v := range highlights {
+			highlightItems = append(highlightItems, highlightItem{
+				// Prepend '(?i)' to our regex, which sets the case-insensitive flag.
+				Regexp:   regexp.MustCompile("(?i)" + regexp.QuoteMeta(k)),
+				ColorTag: v,
+			})
+		}
 	}
 
 	return &Highlighter{highlightItems}

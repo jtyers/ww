@@ -25,8 +25,13 @@ func TestGetArgsFromEnvironment(t *testing.T) {
 		},
 		{
 			"should consider quoted args together",
-			"-c word\t-s --colour \"hello world\"",
-			[]string{"-c", "word", "-s", "--colour", "hello world"},
+			"-c word\t-s --colour \"hello world\" -c \"foo\" -c \"another.js\"",
+			[]string{"-c", "word", "-s", "--colour", "hello world", "-c", "foo", "-c", "another.js"},
+		},
+		{
+			"should convert empty quote marks to empty string",
+			"-c \"\"",
+			[]string{"-c", ""},
 		},
 	}
 

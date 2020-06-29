@@ -25,6 +25,12 @@ software--to make sure the software is free for all its users.`
 			sample,
 		},
 		{
+			"should handle nil highlights",
+			nil,
+			sample,
+			sample,
+		},
+		{
 			"should change input for specified highlights",
 			map[string]string{
 				"word": "[red]",

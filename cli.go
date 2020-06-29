@@ -1,10 +1,13 @@
 package main
 
+//go:generate slice -dir slice -type string -package slice
+
 import (
 	"fmt"
 	"os"
 	"time"
 
+	"github.com/jtyers/ww/slice"
 	"github.com/mkideal/cli"
 )
 
@@ -21,11 +24,21 @@ type argT struct {
 func parseArgs() WWConfig {
 	config := WWConfig{}
 
-	res := cli.Run(new(argT), func(ctx *cli.Context) error {
+	// Prepend $WW_DEFAULT_ARGS to our args list then process them all as normal
+	args := slice.NewStringSlice([]string{os.Args[0]}).
+		Concat(GetArgsFromEnvironment()).
+		Concat(os.Args[1:]).
+		Value()
+
+	res := cli.RunWithArgs(new(argT), args, func(ctx *cli.Context) error {
 		a, _ := ctx.Argv().(*argT)
 
 		//ctx.JSONln(ctx.Argv())
 		//ctx.JSONln(ctx.Args())
+
+		if len(ctx.Args()) == 0 {
+			return fmt.Errorf("command required")
+		}
 
 		config.Command = ctx.Args()[0]
 		config.Args = ctx.Args()[1:]
@@ -55,14 +68,14 @@ func parseArgs() WWConfig {
 			config.Args = newArgs
 		}
 
+		highlights := map[string]string{}
 		if len(a.Highlights) > 0 {
-			Highlights := map[string]string{}
 			for _, highlight := range a.Highlights {
-				Highlights[highlight] = "[red]"
+				highlights[highlight] = "[red]"
 			}
-
-			config.Highlighter = NewHighlighter(Highlights)
 		}
+
+		config.Highlighter = NewHighlighter(highlights) // always set this so it is not nil
 
 		return nil
 	})
