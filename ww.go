@@ -133,10 +133,10 @@ func (w *WW) Run() error {
 
 	beginExecuteCommand = func() {
 		if err := w.executeOnce(
-			func(stdout string, closed bool) {
+			func(stdout string) {
 				fmt.Fprint(w.state.textView, w.config.Highlighter.Highlight(stdout))
 			},
-			func(stderr string, closed bool) {
+			func(stderr string) {
 				fmt.Fprint(w.state.textView, w.config.Highlighter.Highlight(stderr))
 			},
 			func(newState *os.ProcessState) {
@@ -219,7 +219,51 @@ func (w *WW) Stop() {
 	w.state.app.Stop()
 }
 
-func (w *WW) executeOnce(stdoutCallback func(string, bool), stderrCallback func(string, bool), stateChangeCallback func(*os.ProcessState)) error {
+func (w *WW) executeOnce(stdoutCallback func(string), stderrCallback func(string), stateChangeCallback func(*os.ProcessState)) error {
+	stdoutEof := false
+	stderrEof := false
+
+	// According to the godoc, we should not call Wait() before we've finished reading stdout/stderr, since Wait will close those pipes
+	// as soon as the command has completed. However, our reading (and detection ofEOF) is inside goroutines, so this callback is here
+	// to detect EOF on both streams, then call Wait() to close the pipes and clean up.
+	maybeWaitForCommand := func(cmd *exec.Cmd) {
+		if !stdoutEof || !stderrEof {
+			return
+		}
+
+		if err := cmd.Wait(); err != nil {
+			if exitErr, ok := err.(*exec.ExitError); ok {
+				// process failed, so not an error, simply send state down the event channel
+
+				// FIXME sleep momentarily to allow reads/prints of stdout/stderr to complete
+				time.Sleep(time.Millisecond * 100)
+
+				stateChangeCallback(exitErr.ProcessState)
+
+			} else {
+				die(w, "failed waiting for cmd: %v", err)
+			}
+		}
+
+		// FIXME sleep momentarily to allow reads/prints of stdout/stderr to complete
+		time.Sleep(time.Millisecond * 200)
+
+		stateChangeCallback(cmd.ProcessState)
+	}
+
+	scannerReader := func(pipe io.Reader, dataCallback func(string), onEofCallback func()) {
+		scanner := bufio.NewScanner(pipe)
+		for scanner.Scan() {
+			dataCallback(fmt.Sprintln(tview.Escape(scanner.Text())))
+
+		}
+		if err := scanner.Err(); err != nil {
+			die(w, "read: %v", err)
+		}
+
+		onEofCallback()
+	}
+
 	cmd := exec.Command(w.config.Command, w.config.Args...)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -238,47 +282,18 @@ func (w *WW) executeOnce(stdoutCallback func(string, bool), stderrCallback func(
 
 	stateChangeCallback(cmd.ProcessState)
 
-	scannerReader := func(pipe io.Reader, dataCallback func(string, bool)) {
-		scanner := bufio.NewScanner(pipe)
-		for scanner.Scan() {
-			switch scanner.Err() {
-			default:
-				if err != nil {
-					die(w, "read: %v", err)
-				}
-			case nil:
-				dataCallback(fmt.Sprintln(tview.Escape(scanner.Text())), false)
-			case io.EOF:
-				// do nowt (exit goroutine)
-				dataCallback("", true)
-			}
-		}
-	}
-
-	go scannerReader(stdout, stdoutCallback)
-	go scannerReader(stderr, stderrCallback)
-
-	if err := cmd.Wait(); err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok {
-			// process failed, so not an error, simply send state down the event channel
-
-			// FIXME sleep momentarily to allow reads/prints of stdout/stderr to complete
-			time.Sleep(time.Millisecond * 100)
-
-			stateChangeCallback(exitErr.ProcessState)
-
-			return nil
-
-		} else {
-			die(w, "failed waiting for cmd: %v", err)
-			return nil
-		}
-	}
-
-	// FIXME sleep momentarily to allow reads/prints of stdout/stderr to complete
-	time.Sleep(time.Millisecond * 200)
-
-	stateChangeCallback(cmd.ProcessState)
+	go scannerReader(stdout, stdoutCallback,
+		func() { // onEofCallback
+			stdoutEof = true
+			maybeWaitForCommand(cmd)
+		},
+	)
+	go scannerReader(stderr, stderrCallback,
+		func() { // onEofCallback
+			stderrEof = true
+			maybeWaitForCommand(cmd)
+		},
+	)
 
 	return nil
 }
