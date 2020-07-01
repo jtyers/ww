@@ -129,94 +129,84 @@ func (w *WW) Run() error {
 	// Kick off a goroutine that consumes events from the command and updates the TextView/Header
 	// accordingly.
 
-	stdoutChan := make(chan string, 5) // buffered, so we can start writing before readers start reading
-	stderrChan := make(chan string, 5)
-	evtChan := make(chan *os.ProcessState, 5)
+	var beginExecuteCommand func()
 
-	beginExecuteCommand := func() {
-		if err := w.executeOnce(stdoutChan, stderrChan, evtChan); err != nil {
-			w.UpdateStatus(StatusFailed, err.Error())
-		}
-	}
-
-	go beginExecuteCommand()
-
-	go func() {
-		for {
-			select {
-			case stdout := <-stdoutChan:
+	beginExecuteCommand = func() {
+		if err := w.executeOnce(
+			func(stdout string, closed bool) {
 				fmt.Fprint(w.state.textView, w.config.Highlighter.Highlight(stdout))
-			case stderr := <-stderrChan:
+			},
+			func(stderr string, closed bool) {
 				fmt.Fprint(w.state.textView, w.config.Highlighter.Highlight(stderr))
-			}
-		}
-	}()
+			},
+			func(newState *os.ProcessState) {
+				// This loops around, pulling status updates from evtChan, and updating the UI accordingly.
+				//
+				// Note that output from the command being executed is *NOT* processed by this goroutine;
+				// executeOnce() has its own goroutines that read from those pipes and print directly to the
+				// textView.
 
-	go func() {
-		// This loops around, pulling status updates from evtChan, and updating the UI accordingly.
-		//
-		// Note that output from the command being executed is *NOT* processed by this goroutine;
-		// executeOnce() has its own goroutines that read from those pipes and print directly to the
-		// textView.
+				if newState != nil && newState.Exited() {
 
-		for {
-			newState := <-evtChan
-			if newState != nil && newState.Exited() {
+					if newState.Success() {
+						w.UpdateStatus(StatusSuccess, fmt.Sprintf("(last run %s)", time.Now().Format("15:04:05")))
+					} else {
+						w.UpdateStatus(StatusFailed, fmt.Sprintf("(exited with %d)", newState.ExitCode()))
+					}
 
-				if newState.Success() {
-					w.UpdateStatus(StatusSuccess, fmt.Sprintf("(last run %s)", time.Now().Format("15:04:05")))
-				} else {
-					w.UpdateStatus(StatusFailed, fmt.Sprintf("(exited with %d)", newState.ExitCode()))
-				}
+					// now run triggers, if configured
+					if w.config.Trigger != nil {
+						// Wait for trigger to fire
+						triggerChan, statusChan := w.config.Trigger.WaitForTrigger(w.state.interruptChan)
 
-				// now run triggers, if configured
-				if w.config.Trigger != nil {
-					// Wait for trigger to fire
-					triggerChan, statusChan := w.config.Trigger.WaitForTrigger(w.state.interruptChan)
+						outerbreak := false
 
-					outerbreak := false
+						// This loop is here to WaitForTrigger, but we also need to loop and select to catch
+						// updates coming in on statusChan and call UpdateStatus for them.
+						for {
+							select {
+							case statusUpdate := <-statusChan:
+								w.UpdateStatus(w.state.Status, statusUpdate)
 
-					// This loop is here to WaitForTrigger, but we also need to loop and select to catch
-					// updates coming in on statusChan and call UpdateStatus for them.
-					for {
-						select {
-						case statusUpdate := <-statusChan:
-							w.UpdateStatus(w.state.Status, statusUpdate)
+							case trigger := <-triggerChan:
+								if trigger {
+									w.state.app.QueueUpdateDraw(func() {
+										w.state.textView.Clear()
+									})
 
-						case trigger := <-triggerChan:
-							if trigger {
-								w.state.app.QueueUpdateDraw(func() {
-									w.state.textView.Clear()
-								})
+									beginExecuteCommand()
 
-								beginExecuteCommand()
+								} else {
+									outerbreak = true // if trigger was interrupted (i.e. did not return true), quit the loop
+								}
+							}
 
-							} else {
-								outerbreak = true // if trigger was interrupted (i.e. did not return true), quit the loop
+							if outerbreak {
+								outerbreak = false
+								break
 							}
 						}
 
 						if outerbreak {
 							outerbreak = false
-							break
+							return
 						}
-					}
 
-					if outerbreak {
-						outerbreak = false
-						break
+					} else {
+						fmt.Fprint(w.state.textView, "\n[red]ww [yellow]Press Ctrl+C to exit\n")
+						return
 					}
 
 				} else {
-					fmt.Fprint(w.state.textView, "\n[red]ww [yellow]Press Ctrl+C to exit\n")
-					break
+					w.UpdateStatus(StatusRunning, "")
 				}
-
-			} else {
-				w.UpdateStatus(StatusRunning, "")
-			}
+			},
+		); err != nil {
+			w.UpdateStatus(StatusFailed, err.Error())
 		}
-	}()
+	}
+
+	go beginExecuteCommand()
 
 	if err := w.state.app.SetRoot(w.state.grid, true).EnableMouse(true).Run(); err != nil {
 		return err
@@ -229,8 +219,7 @@ func (w *WW) Stop() {
 	w.state.app.Stop()
 }
 
-func (w *WW) executeOnce(stdoutChan chan string, stderrChan chan string, evtChan chan *os.ProcessState) error {
-
+func (w *WW) executeOnce(stdoutCallback func(string, bool), stderrCallback func(string, bool), stateChangeCallback func(*os.ProcessState)) error {
 	cmd := exec.Command(w.config.Command, w.config.Args...)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -247,12 +236,9 @@ func (w *WW) executeOnce(stdoutChan chan string, stderrChan chan string, evtChan
 		return fmt.Errorf("start: %v", err)
 	}
 
-	evtChan <- cmd.ProcessState
+	stateChangeCallback(cmd.ProcessState)
 
-	stdoutClose := make(chan bool, 1)
-	stderrClose := make(chan bool, 1)
-
-	scannerReader := func(pipe io.Reader, c chan string, closeChan chan bool) {
+	scannerReader := func(pipe io.Reader, dataCallback func(string, bool)) {
 		scanner := bufio.NewScanner(pipe)
 		for scanner.Scan() {
 			switch scanner.Err() {
@@ -261,16 +247,16 @@ func (w *WW) executeOnce(stdoutChan chan string, stderrChan chan string, evtChan
 					die(w, "read: %v", err)
 				}
 			case nil:
-				c <- fmt.Sprintln(tview.Escape(scanner.Text()))
+				dataCallback(fmt.Sprintln(tview.Escape(scanner.Text())), false)
 			case io.EOF:
 				// do nowt (exit goroutine)
-				closeChan <- true
+				dataCallback("", true)
 			}
 		}
 	}
 
-	go scannerReader(stdout, stdoutChan, stdoutClose)
-	go scannerReader(stderr, stderrChan, stderrClose)
+	go scannerReader(stdout, stdoutCallback)
+	go scannerReader(stderr, stderrCallback)
 
 	if err := cmd.Wait(); err != nil {
 		if exitErr, ok := err.(*exec.ExitError); ok {
@@ -279,7 +265,7 @@ func (w *WW) executeOnce(stdoutChan chan string, stderrChan chan string, evtChan
 			// FIXME sleep momentarily to allow reads/prints of stdout/stderr to complete
 			time.Sleep(time.Millisecond * 100)
 
-			evtChan <- exitErr.ProcessState
+			stateChangeCallback(exitErr.ProcessState)
 
 			return nil
 
@@ -289,7 +275,10 @@ func (w *WW) executeOnce(stdoutChan chan string, stderrChan chan string, evtChan
 		}
 	}
 
-	evtChan <- cmd.ProcessState
+	// FIXME sleep momentarily to allow reads/prints of stdout/stderr to complete
+	time.Sleep(time.Millisecond * 200)
+
+	stateChangeCallback(cmd.ProcessState)
 
 	return nil
 }
