@@ -83,6 +83,5 @@ func parseArgs() WWConfig {
 
 	config.Highlighter = NewHighlighter(highlights) // always set this so it is not nil
 
-	fmt.Printf("config: %#v\n", config)
 	return config
 }
