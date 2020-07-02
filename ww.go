@@ -239,17 +239,10 @@ type ProcessStatusChange struct {
 }
 
 func (w *WW) executeOnce(stdoutCallback func(string), stderrCallback func(string), stateChangeCallback func(ProcessStatusChange)) error {
-	stdoutEof := false
-	stderrEof := false
-
 	// According to the godoc, we should not call Wait() before we've finished reading stdout/stderr, since Wait will close those pipes
 	// as soon as the command has completed. However, our reading (and detection ofEOF) is inside goroutines, so this callback is here
 	// to detect EOF on both streams, then call Wait() to close the pipes and clean up.
 	maybeWaitForCommand := func(cmd *exec.Cmd) {
-		if !stdoutEof || !stderrEof {
-			return
-		}
-
 		if err := cmd.Wait(); err != nil {
 			if exitErr, ok := err.(*exec.ExitError); ok {
 				// process failed, so not an error, simply send state down the event channel
@@ -260,7 +253,11 @@ func (w *WW) executeOnce(stdoutCallback func(string), stderrCallback func(string
 				stateChangeCallback(ProcessStatusChange{State: exitErr.ProcessState, Status: ProcessStatusFailed})
 
 			} else {
-				die(w, "failed waiting for cmd: %v", err)
+				if err.Error() == "wait: no child processes" {
+					// we ignore this error specifically; it seems to occur if the process exits before we Wait()
+				} else {
+					die(w, "failed waiting for cmd: %v", err)
+				}
 			}
 		}
 
@@ -301,18 +298,16 @@ func (w *WW) executeOnce(stdoutCallback func(string), stderrCallback func(string
 
 	stateChangeCallback(ProcessStatusChange{State: cmd.ProcessState, Status: ProcessStatusStarted})
 
-	go scannerReader(stdout, stdoutCallback,
-		func() { // onEofCallback
-			stdoutEof = true
-			maybeWaitForCommand(cmd)
-		},
-	)
-	go scannerReader(stderr, stderrCallback,
-		func() { // onEofCallback
-			stderrEof = true
-			maybeWaitForCommand(cmd)
-		},
-	)
+	stdoutEofChan := make(chan bool, 1)
+	stderrEofChan := make(chan bool, 1)
+
+	go scannerReader(stdout, stdoutCallback, func() { stdoutEofChan <- true })
+	go scannerReader(stderr, stderrCallback, func() { stderrEofChan <- true })
+
+	<-stdoutEofChan
+	<-stderrEofChan
+
+	maybeWaitForCommand(cmd)
 
 	return nil
 }
