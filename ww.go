@@ -125,88 +125,89 @@ func (w *WW) UpdateStatus(status Status, header string) {
 	})
 }
 
+func (w *WW) waitForTriggersOrExit() {
+	// now run triggers, if configured
+	if w.config.Trigger != nil {
+		// Wait for trigger to fire
+		triggerChan, statusChan := w.config.Trigger.WaitForTrigger(w.state.interruptChan)
+
+		outerbreak := false
+
+		// This loop is here to WaitForTrigger, but we also need to loop and select to catch
+		// updates coming in on statusChan and call UpdateStatus for them.
+		for {
+			select {
+			case statusUpdate := <-statusChan:
+				w.UpdateStatus(w.state.Status, statusUpdate)
+
+			case trigger := <-triggerChan:
+				if trigger {
+					w.state.app.QueueUpdateDraw(func() {
+						w.state.textView.Clear()
+					})
+
+					w.beginExecuteCommand()
+
+				} else {
+					outerbreak = true // if trigger was interrupted (i.e. did not return true), quit the loop
+				}
+			}
+
+			if outerbreak {
+				outerbreak = false
+				break
+			}
+		}
+
+		if outerbreak {
+			outerbreak = false
+			return
+		}
+
+	} else {
+		fmt.Fprint(w.state.textView, "\n[red]ww [yellow]Press Ctrl+C to exit\n")
+		return
+	}
+}
+
+func (w *WW) beginExecuteCommand() {
+	if err := w.executeOnce(
+		func(stdout string) {
+			fmt.Fprint(w.state.textView, w.config.Highlighter.Highlight(stdout))
+		},
+		func(stderr string) {
+			fmt.Fprint(w.state.textView, w.config.Highlighter.Highlight(stderr))
+		},
+		func(psc ProcessStatusChange) {
+			// This loops around, pulling status updates from evtChan, and updating the UI accordingly.
+			//
+			// Note that output from the command being executed is *NOT* processed by this goroutine;
+			// executeOnce() has its own goroutines that read from those pipes and print directly to the
+			// textView.
+
+			switch psc.Status {
+			case ProcessStatusStarted:
+				w.UpdateStatus(StatusRunning, "")
+
+			case ProcessStatusSucceeded:
+				w.UpdateStatus(StatusSuccess, fmt.Sprintf("(last run %s)", time.Now().Format("15:04:05")))
+				w.waitForTriggersOrExit()
+
+			case ProcessStatusFailed:
+				w.UpdateStatus(StatusFailed, fmt.Sprintf("(exited with %d)", psc.State.ExitCode()))
+				w.waitForTriggersOrExit()
+			}
+		},
+	); err != nil {
+		w.UpdateStatus(StatusFailed, err.Error())
+	}
+}
+
 func (w *WW) Run() error {
 	// Kick off a goroutine that consumes events from the command and updates the TextView/Header
 	// accordingly.
 
-	var beginExecuteCommand func()
-
-	beginExecuteCommand = func() {
-		if err := w.executeOnce(
-			func(stdout string) {
-				fmt.Fprint(w.state.textView, w.config.Highlighter.Highlight(stdout))
-			},
-			func(stderr string) {
-				fmt.Fprint(w.state.textView, w.config.Highlighter.Highlight(stderr))
-			},
-			func(newState *os.ProcessState) {
-				// This loops around, pulling status updates from evtChan, and updating the UI accordingly.
-				//
-				// Note that output from the command being executed is *NOT* processed by this goroutine;
-				// executeOnce() has its own goroutines that read from those pipes and print directly to the
-				// textView.
-
-				if newState != nil && newState.Exited() {
-
-					if newState.Success() {
-						w.UpdateStatus(StatusSuccess, fmt.Sprintf("(last run %s)", time.Now().Format("15:04:05")))
-					} else {
-						w.UpdateStatus(StatusFailed, fmt.Sprintf("(exited with %d)", newState.ExitCode()))
-					}
-
-					// now run triggers, if configured
-					if w.config.Trigger != nil {
-						// Wait for trigger to fire
-						triggerChan, statusChan := w.config.Trigger.WaitForTrigger(w.state.interruptChan)
-
-						outerbreak := false
-
-						// This loop is here to WaitForTrigger, but we also need to loop and select to catch
-						// updates coming in on statusChan and call UpdateStatus for them.
-						for {
-							select {
-							case statusUpdate := <-statusChan:
-								w.UpdateStatus(w.state.Status, statusUpdate)
-
-							case trigger := <-triggerChan:
-								if trigger {
-									w.state.app.QueueUpdateDraw(func() {
-										w.state.textView.Clear()
-									})
-
-									beginExecuteCommand()
-
-								} else {
-									outerbreak = true // if trigger was interrupted (i.e. did not return true), quit the loop
-								}
-							}
-
-							if outerbreak {
-								outerbreak = false
-								break
-							}
-						}
-
-						if outerbreak {
-							outerbreak = false
-							return
-						}
-
-					} else {
-						fmt.Fprint(w.state.textView, "\n[red]ww [yellow]Press Ctrl+C to exit\n")
-						return
-					}
-
-				} else {
-					w.UpdateStatus(StatusRunning, "")
-				}
-			},
-		); err != nil {
-			w.UpdateStatus(StatusFailed, err.Error())
-		}
-	}
-
-	go beginExecuteCommand()
+	go w.beginExecuteCommand()
 
 	if err := w.state.app.SetRoot(w.state.grid, true).EnableMouse(true).Run(); err != nil {
 		return err
@@ -219,7 +220,25 @@ func (w *WW) Stop() {
 	w.state.app.Stop()
 }
 
-func (w *WW) executeOnce(stdoutCallback func(string), stderrCallback func(string), stateChangeCallback func(*os.ProcessState)) error {
+const (
+	// ProcessStatusStarted is when the process has been started (but has not yet finished)
+	ProcessStatusStarted = 1 // use non-zero so the zero value is not conflated with this
+
+	// ProcessStatusSucceeded is when the process has exited with a zero exit code
+	ProcessStatusSucceeded = 2
+
+	// ProcessStatusFailed is when the process has exited with a non-zero exit code
+	ProcessStatusFailed = 3
+)
+
+type ProcessStatusChange struct {
+	State *os.ProcessState
+
+	// Status indicates the new status of the process. See ProcessStatus* constants for possible values.
+	Status int
+}
+
+func (w *WW) executeOnce(stdoutCallback func(string), stderrCallback func(string), stateChangeCallback func(ProcessStatusChange)) error {
 	stdoutEof := false
 	stderrEof := false
 
@@ -238,7 +257,7 @@ func (w *WW) executeOnce(stdoutCallback func(string), stderrCallback func(string
 				// FIXME sleep momentarily to allow reads/prints of stdout/stderr to complete
 				time.Sleep(time.Millisecond * 100)
 
-				stateChangeCallback(exitErr.ProcessState)
+				stateChangeCallback(ProcessStatusChange{State: exitErr.ProcessState, Status: ProcessStatusFailed})
 
 			} else {
 				die(w, "failed waiting for cmd: %v", err)
@@ -248,7 +267,7 @@ func (w *WW) executeOnce(stdoutCallback func(string), stderrCallback func(string
 		// FIXME sleep momentarily to allow reads/prints of stdout/stderr to complete
 		time.Sleep(time.Millisecond * 200)
 
-		stateChangeCallback(cmd.ProcessState)
+		stateChangeCallback(ProcessStatusChange{State: cmd.ProcessState, Status: ProcessStatusSucceeded})
 	}
 
 	scannerReader := func(pipe io.Reader, dataCallback func(string), onEofCallback func()) {
@@ -280,7 +299,7 @@ func (w *WW) executeOnce(stdoutCallback func(string), stderrCallback func(string
 		return fmt.Errorf("start: %v", err)
 	}
 
-	stateChangeCallback(cmd.ProcessState)
+	stateChangeCallback(ProcessStatusChange{State: cmd.ProcessState, Status: ProcessStatusStarted})
 
 	go scannerReader(stdout, stdoutCallback,
 		func() { // onEofCallback
