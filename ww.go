@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/gdamore/tcell"
+	"github.com/jtyers/ww/trigger"
 	"github.com/rivo/tview"
 )
 
@@ -34,7 +35,7 @@ type WWConfig struct {
 
 	// Trigger is the WWTrigger used to trigger re-executions. Might be nil if the user only wants
 	// the command to run once.
-	Trigger WWTrigger
+	Trigger trigger.WWTrigger
 
 	Highlighter *Highlighter
 }

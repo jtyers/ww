@@ -10,18 +10,24 @@ import (
 
 	"github.com/integrii/flaggy"
 	"github.com/jtyers/ww/slice"
+	"github.com/jtyers/ww/trigger/fsnotify"
+	"github.com/jtyers/ww/trigger/interval"
 )
 
 func parseArgs() WWConfig {
 	config := WWConfig{}
 
+	flWatch := false
 	flInterval := 2
 	flShell := false
 	flHighlights := []string{}
+	flWatchExcludes := []string{}
 
 	flaggy.Int(&flInterval, "n", "interval", "Run command every X seconds")
 	flaggy.Bool(&flShell, "s", "shell", "Run command inside a shell (auto-detected via $SHELL)")
 	flaggy.StringSlice(&flHighlights, "c", "color", "Colour (highlight) the given string in output (can be specified multiple times, case-insensitive)")
+	flaggy.Bool(&flWatch, "w", "watch", "Watch current directory for changes")
+	flaggy.StringSlice(&flWatchExcludes, "x", "exclude", "Exclude files/directories with the given name")
 
 	flaggy.DefaultParser.ShowVersionWithVersionFlag = true
 	flaggy.DefaultParser.ShowHelpOnUnexpected = true
@@ -40,13 +46,26 @@ func parseArgs() WWConfig {
 	config.Command = flaggy.TrailingArguments[0]
 	config.Args = flaggy.TrailingArguments[1:]
 
-	if flInterval > 0 {
-		Interval, err := time.ParseDuration(fmt.Sprintf("%ds", flInterval))
+	if flWatch {
+		wd, err := os.Getwd()
+		if err != nil {
+			die(nil, "getwd: %v", err)
+		}
+
+		fsnotifyTrigger, err := fsnotify.NewFsNotifyTrigger(wd, flWatchExcludes)
+		if err != nil {
+			die(nil, "error creating fsnotify trigger: %v", err)
+		}
+
+		config.Trigger = fsnotifyTrigger
+
+	} else if flInterval > 0 {
+		i, err := time.ParseDuration(fmt.Sprintf("%ds", flInterval))
 		if err != nil {
 			die(nil, "invalid --interval: %v", err)
 		}
 
-		config.Trigger = &IntervalWWTrigger{Interval}
+		config.Trigger = &interval.IntervalWWTrigger{Interval: i}
 	}
 
 	if flShell {
