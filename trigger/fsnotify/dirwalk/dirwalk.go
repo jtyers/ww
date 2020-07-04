@@ -3,6 +3,7 @@ package dirwalk
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/karrick/godirwalk"
 )
@@ -16,6 +17,30 @@ func WalkDirectory(dirname string, nameExcludes []string, pathExcludes []string,
 
 		// Callback is called for every node visited. The dirent passed contains a name, but not a full file Stat.
 		Callback: func(osPathname string, de *godirwalk.Dirent) error {
+			basename := filepath.Base(osPathname)
+			for _, nameExclude := range nameExcludes {
+				match, err := filepath.Match(nameExclude, basename)
+				if err != nil {
+					return fmt.Errorf("matching %q: %v", nameExclude, err)
+				}
+
+				if match {
+					fmt.Printf("skipping %s\n", osPathname)
+					return nil
+				}
+			}
+			for _, pathExclude := range pathExcludes {
+				match, err := filepath.Match(pathExclude, osPathname)
+				if err != nil {
+					return fmt.Errorf("matching %q: %v", pathExclude, err)
+				}
+
+				if match {
+					fmt.Printf("skipping %s\n", osPathname)
+					return nil
+				}
+			}
+
 			result = append(result, osPathname)
 			return nil
 		},
