@@ -21,7 +21,7 @@ func parseArgs() WWConfig {
 	flInterval := 2
 	flShell := false
 	flHighlights := []string{}
-	flWatchExcludes := []string{}
+	flWatchExcludes := []string{".git"} // default value
 
 	flaggy.Int(&flInterval, "n", "interval", "Run command every X seconds")
 	flaggy.Bool(&flShell, "s", "shell", "Run command inside a shell (auto-detected via $SHELL)")
