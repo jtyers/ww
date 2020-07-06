@@ -25,7 +25,7 @@ func WalkDirectory(dirname string, nameExcludes []string, pathExcludes []string,
 				}
 
 				if match {
-					fmt.Printf("skipping %s\n", osPathname)
+					//fmt.Printf("skipping %s\n", osPathname)
 					return nil
 				}
 			}
@@ -36,7 +36,7 @@ func WalkDirectory(dirname string, nameExcludes []string, pathExcludes []string,
 				}
 
 				if match {
-					fmt.Printf("skipping %s\n", osPathname)
+					//fmt.Printf("skipping %s\n", osPathname)
 					return nil
 				}
 			}

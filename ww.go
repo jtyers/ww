@@ -86,8 +86,7 @@ func (w *WW) Init() {
 
 		header: tview.NewTextView().
 			SetDynamicColors(true).
-			SetTextAlign(tview.AlignLeft).
-			SetText("Hello!"),
+			SetTextAlign(tview.AlignLeft),
 
 		status: tview.NewTextView().
 			SetDynamicColors(true).
@@ -143,7 +142,7 @@ func (w *WW) waitForTriggersOrExit() {
 
 			case trigger := <-triggerChan:
 				if trigger {
-					w.state.app.QueueUpdateDraw(func() {
+					w.state.app.QueueUpdate(func() {
 						w.state.textView.Clear()
 					})
 
@@ -239,6 +238,10 @@ type ProcessStatusChange struct {
 	Status int
 }
 
+// Execute the configured command, calling the given callbacks as we receive output from the process.
+//
+// Will only return an error if there is an error prior to launching the process. If the process itself
+// encounters an error, that will be signalled via a stateChangeCallback.
 func (w *WW) executeOnce(stdoutCallback func(string), stderrCallback func(string), stateChangeCallback func(ProcessStatusChange)) error {
 	// According to the godoc, we should not call Wait() before we've finished reading stdout/stderr, since Wait will close those pipes
 	// as soon as the command has completed. However, our reading (and detection ofEOF) is inside goroutines, so this callback is here
@@ -271,7 +274,7 @@ func (w *WW) executeOnce(stdoutCallback func(string), stderrCallback func(string
 	scannerReader := func(pipe io.Reader, dataCallback func(string), onEofCallback func()) {
 		scanner := bufio.NewScanner(pipe)
 		for scanner.Scan() {
-			dataCallback(fmt.Sprintln(tview.Escape(scanner.Text())))
+			dataCallback(fmt.Sprintln(tview.Escape(scanner.Text()))) // add \n as Scanner stripped it off
 
 		}
 		if err := scanner.Err(); err != nil {
@@ -307,6 +310,9 @@ func (w *WW) executeOnce(stdoutCallback func(string), stderrCallback func(string
 
 	<-stdoutEofChan
 	<-stderrEofChan
+
+	close(stdoutEofChan)
+	close(stderrEofChan)
 
 	maybeWaitForCommand(cmd)
 
