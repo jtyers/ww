@@ -14,7 +14,7 @@ import (
 	"github.com/jtyers/ww/trigger/interval"
 )
 
-func parseArgs() WWConfig {
+func parseArgs() (WWConfig, WWDisplay) {
 	config := WWConfig{}
 
 	flWatch := false
@@ -102,5 +102,7 @@ func parseArgs() WWConfig {
 
 	config.Highlighter = NewHighlighter(highlights) // always set this so it is not nil
 
-	return config
+	var display WWDisplay
+		display = &TviewDisplay{config: config}
+	return config, display
 }

@@ -19,6 +19,8 @@ var ErrInterrupted = fmt.Errorf("interrupted")
 var StatusSuccess = Status{"[#002200:#008800]", tcell.ColorDarkGreen, "success"}
 var StatusFailed = Status{"[#ffdddd:#880000]", tcell.ColorDarkRed, "failed"}
 var StatusRunning = Status{"[#aaaaaa]", tcell.ColorGray, "running"}
+var StatusTriggered = Status{"[#aaaaaa]", tcell.ColorGray, "triggered"}
+var StatusEnded = Status{"[#aaaaaa]", tcell.ColorGray, "finished"}
 
 type Status struct {
 	colorCode       string
@@ -41,19 +43,6 @@ type WWConfig struct {
 }
 
 type WWState struct {
-	// Instance of the tview Application that controls rendering to the terminal and associated event loop.
-	app *tview.Application
-
-	// The main textView containing the output of executed commands.
-	textView *tview.TextView
-
-	// The grid
-	grid *tview.Grid
-
-	// The header cell in the grid
-	header *tview.TextView
-	status *tview.TextView
-
 	// A channel used to interrupt the configured WWTrigger
 	interruptChan chan error
 
@@ -72,42 +61,15 @@ type WW struct {
 
 	// State of this WW instance. Deliberately not a pointer since it is never used elsewhere.
 	state WWState
+
+	// The display we're using
+	display WWDisplay
 }
 
 // Init sets up the WW instance's UI.
-func (w *WW) Init() {
-	w.state = WWState{
-		app: tview.NewApplication(),
-
-		grid: tview.NewGrid().
-			SetRows(1, 0).
-			SetColumns(0, 10).
-			SetBorders(false),
-
-		header: tview.NewTextView().
-			SetDynamicColors(true).
-			SetTextAlign(tview.AlignLeft),
-
-		status: tview.NewTextView().
-			SetDynamicColors(true).
-			SetTextAlign(tview.AlignRight).
-			SetText("status"),
-
-		textView: tview.NewTextView().
-			SetDynamicColors(true).
-			SetTextColor(tcell.ColorDefault).
-			SetRegions(true).
-			SetWordWrap(true).
-			SetChangedFunc(func() {
-				w.state.app.Draw()
-			}),
-
-		interruptChan: make(chan error),
-	}
-
-	w.state.grid.AddItem(w.state.header, 0, 0, 1, 1, 5, 0, false)
-	w.state.grid.AddItem(w.state.status, 0, 1, 1, 1, 5, 20, false)
-	w.state.grid.AddItem(w.state.textView, 1, 0, 1, 2, 0, 0, true)
+func (w *WW) Init(config WWConfig) {
+	w.state = WWState{interruptChan: make(chan error)}
+	w.display.Init(config)
 }
 
 func (w *WW) UpdateStatus(status Status, header string) {
@@ -116,13 +78,7 @@ func (w *WW) UpdateStatus(status Status, header string) {
 
 	cmdNameAndArgs := tview.Escape(fmt.Sprintf("%s %s", w.config.Command, strings.Join(w.config.Args, " ")))
 
-	w.state.app.QueueUpdateDraw(func() {
-		w.state.header.Box.SetBackgroundColor(w.state.Status.backgroundColor)
-		w.state.status.Box.SetBackgroundColor(w.state.Status.backgroundColor)
-
-		w.state.header.SetText(w.state.Status.colorCode + cmdNameAndArgs + " " + w.state.StatusText)
-		w.state.status.SetText(w.state.Status.colorCode + tview.Escape(w.state.Status.name))
-	})
+	w.display.UpdateStatus(status, header, cmdNameAndArgs)
 }
 
 func (w *WW) waitForTriggersOrExit() {
@@ -142,10 +98,8 @@ func (w *WW) waitForTriggersOrExit() {
 
 			case trigger := <-triggerChan:
 				if trigger {
-					w.state.app.QueueUpdate(func() {
-						w.state.textView.Clear()
-					})
-
+					w.state.Status = StatusTriggered
+					w.UpdateStatus(w.state.Status, "")
 					w.beginExecuteCommand()
 
 				} else {
@@ -165,19 +119,16 @@ func (w *WW) waitForTriggersOrExit() {
 		}
 
 	} else {
-		fmt.Fprint(w.state.textView, "\n[red]ww [yellow]Press Ctrl+C to exit\n")
+		w.state.Status = StatusEnded
+		w.UpdateStatus(w.state.Status, "")
 		return
 	}
 }
 
 func (w *WW) beginExecuteCommand() {
 	if err := w.executeOnce(
-		func(stdout string) {
-			fmt.Fprint(w.state.textView, w.config.Highlighter.Highlight(stdout))
-		},
-		func(stderr string) {
-			fmt.Fprint(w.state.textView, w.config.Highlighter.Highlight(stderr))
-		},
+		w.display.OnStdout,
+		w.display.OnStderr,
 		func(psc ProcessStatusChange) {
 			// This loops around, pulling status updates from evtChan, and updating the UI accordingly.
 			//
@@ -209,7 +160,7 @@ func (w *WW) Run() error {
 
 	go w.beginExecuteCommand()
 
-	if err := w.state.app.SetRoot(w.state.grid, true).EnableMouse(true).Run(); err != nil {
+	if err := w.display.Init(w.config); err != nil {
 		return err
 	}
 
@@ -217,7 +168,7 @@ func (w *WW) Run() error {
 }
 
 func (w *WW) Stop() {
-	w.state.app.Stop()
+	w.display.Stop()
 }
 
 const (
@@ -326,8 +277,8 @@ func die(ww *WW, msg string, args ...interface{}) {
 }
 
 func main() {
-	ww := &WW{config: parseArgs()}
-	ww.Init()
+	config, display := parseArgs()
+	ww := &WW{config: config, display: display}
 
 	if err := ww.Run(); err != nil {
 		die(ww, "%v", err)
