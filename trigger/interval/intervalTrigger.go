@@ -31,7 +31,7 @@ func (i *IntervalWWTrigger) WaitForTrigger(interruptChan <-chan error) (<-chan b
 				c <- false
 				return
 			case <-time.After(time.Second):
-				s <- fmt.Sprintf("(running in %0.fs)", j)
+				s <- fmt.Sprintf("(%0.fs)", j)
 			}
 		}
 

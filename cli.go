@@ -19,10 +19,12 @@ func parseArgs() (WWConfig, WWDisplay) {
 
 	flWatch := false
 	flInterval := 2
+	flFullscreen := false
 	flShell := false
 	flHighlights := []string{}
 	flWatchExcludes := []string{".git"} // default value
 
+	flaggy.Bool(&flFullscreen, "f", "fullscreen", "Run command in an ncurses-like full screen view")
 	flaggy.Int(&flInterval, "n", "interval", "Run command every X seconds")
 	flaggy.Bool(&flShell, "s", "shell", "Run command inside a shell (auto-detected via $SHELL)")
 	flaggy.StringSlice(&flHighlights, "c", "color", "Colour (highlight) the given string in output (can be specified multiple times, case-insensitive)")
@@ -103,6 +105,11 @@ func parseArgs() (WWConfig, WWDisplay) {
 	config.Highlighter = NewHighlighter(highlights) // always set this so it is not nil
 
 	var display WWDisplay
+	if flFullscreen {
 		display = &TviewDisplay{config: config}
+	} else {
+		display = &UiLiveDisplay{config: config}
+	}
+
 	return config, display
 }
