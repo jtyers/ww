@@ -20,13 +20,13 @@ func parseArgs() (WWConfig, WWDisplay) {
 	flWatch := false
 	flInterval := 2
 	flFullscreen := false
-	flShell := false
+	flNoShell := false
 	flHighlights := []string{}
 	flWatchExcludes := []string{".git"} // default value
 
 	flaggy.Bool(&flFullscreen, "f", "fullscreen", "Run command in an ncurses-like full screen view")
 	flaggy.Int(&flInterval, "n", "interval", "Run command every X seconds")
-	flaggy.Bool(&flShell, "s", "shell", "Run command inside a shell (auto-detected via $SHELL)")
+	flaggy.Bool(&flNoShell, "S", "no-shell", "Do not run command inside a shell")
 	flaggy.StringSlice(&flHighlights, "c", "color", "Colour (highlight) the given string in output (can be specified multiple times, case-insensitive)")
 	flaggy.Bool(&flWatch, "w", "watch", "Watch current directory for changes")
 	flaggy.StringSlice(&flWatchExcludes, "x", "exclude", "Exclude files/directories with the given name")
@@ -70,7 +70,7 @@ func parseArgs() (WWConfig, WWDisplay) {
 		config.Trigger = &interval.IntervalWWTrigger{Interval: i}
 	}
 
-	if flShell {
+	if !flNoShell {
 		currentShell, ok := os.LookupEnv("SHELL")
 		if !ok {
 			currentShell = "/bin/sh"
