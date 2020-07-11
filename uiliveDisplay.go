@@ -6,7 +6,12 @@ import (
 	"time"
 
 	"github.com/gosuri/uilive"
+	"github.com/ttacon/chalk"
 )
+
+var SprintfSuccess = chalk.Green.NewStyle().WithTextStyle(chalk.Bold).WithBackground(chalk.ResetColor).Style
+var SprintfRunning = chalk.White.NewStyle().WithTextStyle(chalk.Bold).WithBackground(chalk.ResetColor).Style
+var SprintfFailed = chalk.Red.NewStyle().WithTextStyle(chalk.Bold).WithBackground(chalk.ResetColor).Style
 
 // Uses uilive to render output on the next line of the terminal, overwriting it as it updates (e.g. like docker pull)
 type UiLiveDisplay struct {
@@ -15,8 +20,9 @@ type UiLiveDisplay struct {
 	writer   *uilive.Writer
 	iowriter io.Writer
 
-	statusText string
-	text       string
+	statusTextTop    string
+	statusTextBottom string
+	text             string
 
 	wait chan bool
 
@@ -36,7 +42,7 @@ func (d *UiLiveDisplay) Init(config WWConfig) error {
 	for {
 		select {
 		case <-time.After(250 * time.Millisecond):
-			fmt.Fprintf(d.iowriter, "%s%s", d.statusText, d.text)
+			fmt.Fprintf(d.iowriter, "%s\n%s\n%s\n", d.statusTextTop, d.text, d.statusTextBottom)
 
 		case <-d.wait:
 			outbreak = true
@@ -51,6 +57,8 @@ func (d *UiLiveDisplay) Init(config WWConfig) error {
 }
 
 func (d *UiLiveDisplay) UpdateStatus(status Status, header string, cmdNameAndArgs string) {
+	d.statusTextTop = SprintfRunning(cmdNameAndArgs)
+
 	switch status {
 	case StatusTriggered:
 		// We could clear the screen as soon as cmd is triggered, but for slower commands (e.g. anything
@@ -61,8 +69,17 @@ func (d *UiLiveDisplay) UpdateStatus(status Status, header string, cmdNameAndArg
 	case StatusEnded:
 		d.text += "\n" + "\n[red]ww [yellow]Press Ctrl+C to exit\n"
 
+	case StatusSuccess:
+		d.statusTextBottom = fmt.Sprintf(SprintfSuccess("%s %s"), status.name, header)
+
+	case StatusFailed:
+		d.statusTextBottom = fmt.Sprintf(SprintfFailed("%s %s"), status.name, header)
+
+	case StatusRunning:
+		d.statusTextBottom = fmt.Sprintf(SprintfRunning("%s %s"), status.name, header)
+
 	default:
-		d.statusText = fmt.Sprintf("%s %s %s\n", cmdNameAndArgs, status.name, header)
+		d.statusTextBottom = fmt.Sprintf("%s %s", status.name, header)
 	}
 }
 
