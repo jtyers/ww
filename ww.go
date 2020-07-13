@@ -35,6 +35,10 @@ type WWConfig struct {
 	// Args is the args to pass to the command.
 	Args []string
 
+	// If true, send output immediately to the display. Normally, we wait for the command
+	// to complete before sending output to prevent flickering with slower commands.
+	UnbufferedOutput bool
+
 	// Trigger is the WWTrigger used to trigger re-executions. Might be nil if the user only wants
 	// the command to run once.
 	Trigger trigger.WWTrigger
@@ -52,6 +56,10 @@ type WWState struct {
 	Status Status
 
 	StatusText string
+
+	// If config.UnbufferedOutput is false, buffer stdout/stderr here
+	StdoutBuffer string
+	StderrBuffer string
 }
 
 // WW is the main struct controlling what we do and display.
@@ -125,10 +133,31 @@ func (w *WW) waitForTriggersOrExit() {
 	}
 }
 
+func (w *WW) flushStdout() {
+	w.display.OnStdout(w.state.StdoutBuffer)
+	w.state.StdoutBuffer = ""
+}
+
+func (w *WW) flushStderr() {
+	w.display.OnStdout(w.state.StderrBuffer)
+	w.state.StderrBuffer = ""
+}
+
 func (w *WW) beginExecuteCommand() {
+	var onStdout func(string)
+	var onStderr func(string)
+
+	if w.config.UnbufferedOutput {
+		onStdout = w.display.OnStdout
+		onStderr = w.display.OnStderr
+	} else {
+		onStdout = func(data string) { w.state.StdoutBuffer += data }
+		onStderr = func(data string) { w.state.StderrBuffer += data }
+	}
+
 	if err := w.executeOnce(
-		w.display.OnStdout,
-		w.display.OnStderr,
+		onStdout,
+		onStderr,
 		func(psc ProcessStatusChange) {
 			// This loops around, pulling status updates from evtChan, and updating the UI accordingly.
 			//
@@ -141,15 +170,29 @@ func (w *WW) beginExecuteCommand() {
 				w.UpdateStatus(StatusRunning, "")
 
 			case ProcessStatusSucceeded:
+				if !w.config.UnbufferedOutput {
+					w.flushStdout()
+					w.flushStderr()
+				}
+
 				w.UpdateStatus(StatusSuccess, fmt.Sprintf("(last run %s)", time.Now().Format("15:04:05")))
 				w.waitForTriggersOrExit()
 
 			case ProcessStatusFailed:
+				if !w.config.UnbufferedOutput {
+					w.flushStdout()
+					w.flushStderr()
+				}
+
 				w.UpdateStatus(StatusFailed, fmt.Sprintf("(exited with %d)", psc.State.ExitCode()))
 				w.waitForTriggersOrExit()
 			}
 		},
 	); err != nil {
+		if !w.config.UnbufferedOutput {
+			w.flushStdout()
+			w.flushStderr()
+		}
 		w.UpdateStatus(StatusFailed, err.Error())
 	}
 }
