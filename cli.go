@@ -21,6 +21,7 @@ func parseArgs() (WWConfig, WWDisplay) {
 	flInterval := 2
 	flFullscreen := false
 	flNoShell := false
+	flUnbuffered := false
 	flHighlights := []string{}
 	flWatchExcludes := []string{".git"} // default value
 
@@ -29,6 +30,7 @@ func parseArgs() (WWConfig, WWDisplay) {
 	flaggy.Bool(&flNoShell, "S", "no-shell", "Do not run command inside a shell")
 	flaggy.StringSlice(&flHighlights, "c", "color", "Colour (highlight) the given string in output (can be specified multiple times, case-insensitive)")
 	flaggy.Bool(&flWatch, "w", "watch", "Watch current directory for changes")
+	flaggy.Bool(&flUnbuffered, "u", "unbuffered", "Display output immediately, rather than buffering")
 	flaggy.StringSlice(&flWatchExcludes, "x", "exclude", "Exclude files/directories with the given name")
 
 	flaggy.DefaultParser.ShowVersionWithVersionFlag = true
@@ -47,6 +49,7 @@ func parseArgs() (WWConfig, WWDisplay) {
 
 	config.Command = flaggy.TrailingArguments[0]
 	config.Args = flaggy.TrailingArguments[1:]
+	config.UnbufferedOutput = flUnbuffered
 
 	if flWatch {
 		wd, err := os.Getwd()
