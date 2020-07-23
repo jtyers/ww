@@ -55,7 +55,7 @@ func (t *FsNotifyTrigger) WaitForTrigger(interruptChan <-chan error) (<-chan boo
 				}
 
 				if event.Op&fsnotify.Write == fsnotify.Write || event.Op == fsnotify.Create || event.Op == fsnotify.Remove || event.Op == fsnotify.Rename || event.Op == fsnotify.Chmod {
-					fmt.Printf("change detected in %v\n", event.Name)
+					//fmt.Printf("change detected in %v\n", event.Name)
 					triggerChan <- true
 					watcher.Close() // close watcher and quit goroutine
 					return
