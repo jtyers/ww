@@ -89,7 +89,7 @@ USAGE
     change is detected to allow related I/O operations to complete
     (default: 0.25)
 
-  --no-capture, -n
+  --no-capture, -N
     allow underlying command to print straight to terminal rather
     than capturing output (used for slower commands, such as find,
     tail -f, etc; in this mode, --color has no effect)
