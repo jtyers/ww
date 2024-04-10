@@ -1,19 +1,19 @@
 # watch implemented as a zsh function
-# 
+#
 # MIT License
-# 
+#
 # Copyright (c) 2020 Jonny Tyers
-# 
+#
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
 # in the Software without restriction, including without limitation the rights
 # to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
 # copies of the Software, and to permit persons to whom the Software is
 # furnished to do so, subject to the following conditions:
-# 
+#
 # The above copyright notice and this permission notice shall be included in all
 # copies or substantial portions of the Software.
-# 
+#
 # THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 # IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
 # FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
@@ -52,11 +52,11 @@ function __ww() {
 
     colsLeft=$(($cols - ${#text}))
 
-    printf "$fgbold[$fgcolor]$bg[$bgcolor]" >&2
+    printf "$fg[$fgcolor]$bg[$bgcolor]" >&2
     printf "$text" >&2
     printf ' %.0s' {1..$colsLeft}
     printf "$reset_color" >&2
-  
+
     _tput el # clear to end of line
     printf '\n'
   }
@@ -109,14 +109,14 @@ You can use any shell expansions or aliases in CMD, but remember to escape speci
 Examples:
   ww df -h   # run df -h every 10 seconds
 
-  # run 'go test' every 2 seconds, grepping for FAILED 
+  # run 'go test' every 2 seconds, grepping for FAILED
   # (note the escaped pipe character)
   ww -n 2 -- go test \| grep FAILED
-  
+
   # run 'go test' every time files in the current directory
   # are changed
   ww -w -- go test
-  
+
   # run 'ls ~/foo' continuously, if it fails, retry after 5 seconds, exit when it succeeds
   ww -u -n 5 -- ls ~/foo
 EOF
@@ -131,7 +131,36 @@ EOF
   inotifycmd=$(which inotifywait)
   watch_cmd="$inotifycmd -r -e modify -e close_write -e move -e move_self -e create -e delete -e delete_self -e unmount --exclude '\.git/.*' ."
 
-  O=`getopt -n ww -l help,no-capture,color:colour:interval:,once,watch,watch-wait,until,quiet -- hNc:n:1wWuq "$@"` || return $(__ww_die "$usage")
+  # If -- was specified on the cmdline:
+  # Pull out the args intended for ww versus the args for the command.
+  # getopt cannot do this for us as the getopt command line already contains
+  # '--' (to separate opts to getopt from the params to parse). After this
+  # loop completes, $args will be an array of args to ww, and $@ will contain
+  # the remaining args for the command.
+  #
+  args=()
+  while :; do
+    if [[ "$1" == "--" ]]; then
+      shift
+      break
+    fi
+
+    args+="$1"
+    shift
+
+    if [ $# -eq 0 ]; then
+      break
+    fi
+  done
+
+  cmdtorun="${@[@]}"
+
+  O=$(
+    getopt \
+    -n ww \
+    -l help,no-capture,color:colour:interval:,once,watch,watch-wait,until,quiet \
+    -o hNc:n:1wWuq -- "${args[@]}" \
+  ) || return $(__ww_die "$usage")
   eval set -- "$WW_DEFAULT_ARGS" "$O"
   while true; do
       case "$1" in
@@ -149,13 +178,16 @@ EOF
       esac
   done
 
-  [ $# -ge 1 ] || return $(__ww_die "$usage")
-  cmdtorun="$@"
+  # If -- was NOT specified on the cmdline, at this point $args will contain
+  # all the args (ww args and command args) and $@ will be empty.
+  if [ $# -gt 0 ]; then
+    cmdtorun="${@[@]}"
+  fi
 
   if [ $capture -eq 0 ] && [ -n "$colour" ]; then
     _echo "warning: --color has no effect when --no-capture is used" >&2
   fi
-  
+
   if [ $watch -eq 1 ]; then
     [ -z "$inotifycmd" ] && return $(__ww_die "inotifywatch not found: make sure it is installed and on your PATH")
   fi
@@ -168,11 +200,11 @@ EOF
     # re-evaluate on every run in case terminal has been resized
     cols=$(tput cols)
     lines=$(tput lines)
-        
-    fgcol="white"
-    bgcol="grey"
 
-    printColouredString "white" "grey" "\`$cmdtorun\` running"
+    fgcol="black"
+    bgcol="white"
+
+    printColouredString "black" "white" "\`$cmdtorun\` running"
     _tput cup 0 0 # move cursor to 0,0
 
     if [ $capture -eq 0 ]; then
@@ -205,10 +237,8 @@ EOF
       fi
 
       if [ $ret -eq 0 ]; then
-        fgcol="grey"
         bgcol="green"
       else
-        fgcol="grey"
         bgcol="red"
       fi
 
@@ -219,7 +249,7 @@ EOF
     fi
 
     [ $ret -eq 0 ] && [ $once -eq 1 ] && break;
-    
+
     _tput cup 0 0 # move cursor to 0,0
 
     if [ $watch -eq 1 ]; then
@@ -228,9 +258,9 @@ EOF
       eval "$watch_cmd" &>/dev/null
 
       # after a watch returns, wait a defined amount of time to allow for writes to complete etc
-      # (and handle the case where the write we detect is in fact one of several files being 
+      # (and handle the case where the write we detect is in fact one of several files being
       # written by another process)
-      sleep $watch_wait 
+      sleep $watch_wait
 
     else
       cur=${interval}
